@@ -1,0 +1,21 @@
+{
+  "name": "qw-solar",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Three.js logarithmic solar-system demo (spec: docs/THREEJS_SOLAR_DEMO_PROMPT.md)",
+  "scripts": {
+    "dev": "vite",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "three": "^0.185.1"
+  },
+  "devDependencies": {
+    "@types/three": "^0.185.4",
+    "typescript": "^5.9.3",
+    "vite": "^8.2.2"
+  }
+}

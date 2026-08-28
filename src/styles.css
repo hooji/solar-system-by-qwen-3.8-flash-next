@@ -1,0 +1,100 @@
+/* QW Solar — HUD + tooltip + labels (spec §12, §14) */
+
+:root {
+  --panel-bg: rgba(12, 14, 24, 0.72);
+  --panel-border: rgba(140, 160, 255, 0.25);
+  --text: #e8ecff;
+  --text-dim: #9aa3c0;
+  --accent: #7ea2ff;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: #04050c;
+  color: var(--text);
+  font: 13px/1.45 -apple-system, "Apple SD Gothic Neo", "Pretendard", system-ui, sans-serif;
+}
+
+#viewport { position: fixed; inset: 0; }
+#viewport canvas { display: block; }
+
+.panel {
+  position: fixed;
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  backdrop-filter: blur(6px);
+  max-height: calc(100vh - 24px);
+  overflow-y: auto;
+}
+
+.header {
+  top: 12px;
+  left: 12px;
+  max-width: 320px;
+}
+.header h1 { margin: 0 0 2px; font-size: 16px; }
+.header .sub { color: var(--text-dim); font-size: 11px; }
+
+.control-panel { top: 12px; right: 12px; width: 210px; }
+.control-panel .row { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin: 6px 0; }
+.control-panel button {
+  background: rgba(126, 162, 255, 0.14);
+  border: 1px solid var(--panel-border);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 3px 8px;
+  cursor: pointer;
+  font-size: 12px;
+}
+.control-panel button:hover { background: rgba(126, 162, 255, 0.3); }
+.control-panel button.active { outline: 1px solid var(--accent); }
+.control-panel select {
+  background: #10142a; color: var(--text);
+  border: 1px solid var(--panel-border); border-radius: 6px; padding: 2px 4px;
+}
+.sim-clock { color: var(--text-dim); font-variant-numeric: tabular-nums; }
+
+.info-panel { bottom: 12px; left: 12px; width: min(340px, calc(100vw - 24px)); }
+.info-panel h2 { margin: 0 0 6px; font-size: 14px; }
+.info-panel dl { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; margin: 0; }
+.info-panel dt { color: var(--text-dim); }
+.info-panel dd { margin: 0; text-align: right; }
+.info-panel .sep {
+  grid-column: 1 / -1;
+  margin-top: 6px;
+  border-top: 1px dashed var(--panel-border);
+  color: var(--accent);
+  font-size: 11px;
+}
+
+.disclaimer {
+  bottom: 12px; right: 12px; width: 260px; font-size: 11px; color: var(--text-dim);
+}
+
+.tooltip {
+  position: fixed; top: 0; left: 0;
+  pointer-events: none;
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 6px;
+  padding: 4px 8px;
+  white-space: nowrap;
+  z-index: 30;
+}
+
+.label { text-align: center; pointer-events: none; text-shadow: 0 1px 3px #000; }
+.label-ko { display: block; font-size: 12px; color: var(--text); }
+.label-en { display: block; font-size: 10px; color: var(--text-dim); }
+
+@media (max-width: 720px) {
+  .header { max-width: 46vw; }
+  .control-panel { width: 42vw; }
+  .disclaimer { display: none; }
+  .info-panel { width: calc(100vw - 24px); }
+}
