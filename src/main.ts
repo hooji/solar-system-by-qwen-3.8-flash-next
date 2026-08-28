@@ -16,6 +16,8 @@ import { SolarSystem } from "./core/SolarSystem";
 import { InfoPanel } from "./ui/InfoPanel";
 import { ControlPanel } from "./ui/ControlPanel";
 import { Labels } from "./ui/Labels";
+import { OverlayManager } from "./ui/OverlayManager";
+import { BODY_SELECTED_EVENT } from "./ui/overlayState";
 
 // --- data sanity in dev (spec §15; silent in prod) --------------------------
 const issues = validateSolarSystem();
@@ -60,6 +62,9 @@ controls.dampingFactor = 0.06;
 controls.minDistance = 1;
 controls.maxDistance = 1500;
 
+// --- overlay panel toggle system (task t_30700e13) --------------------------
+const overlay = new OverlayManager(viewport);
+
 // --- state ------------------------------------------------------------------
 const scale = new ScaleManager();
 const clock = new SimulationClock();
@@ -89,6 +94,7 @@ header.innerHTML =
   "<h1>로그 태양계 · Logarithmic Solar System</h1>" +
   '<p class="sub">실제 천문 데이터를 로그 스케일로 압축한 시각화입니다.</p>';
 viewport.appendChild(header);
+overlay.register("header", header);
 
 const disclaimer = document.createElement("aside");
 disclaimer.className = "panel disclaimer";
@@ -163,6 +169,22 @@ function pick(ev: { clientX: number; clientY: number }): string | null {
   return null;
 }
 
+/**
+ * Single call site for body selection (spec: overlay task event contract).
+ * Raycast clicks and programmatic selection both go through here; the
+ * `qw:body-selected` event lets the overlay auto-show the info panel even
+ * from an individual/global collapsed state. Tests can dispatch the event
+ * directly or call window.__qwSelect(id).
+ */
+function selectBody(id: string): void {
+  focusOn(id);
+  info.showBody(id);
+  window.dispatchEvent(
+    new CustomEvent(BODY_SELECTED_EVENT, { detail: { id } satisfies { id: string } }),
+  );
+}
+(window as unknown as { __qwSelect?: (id: string) => void }).__qwSelect = selectBody;
+
 let downX = 0, downY = 0;
 renderer.domElement.addEventListener("pointerdown", (ev) => {
   downX = ev.clientX;
@@ -171,10 +193,7 @@ renderer.domElement.addEventListener("pointerdown", (ev) => {
 renderer.domElement.addEventListener("pointerup", (ev) => {
   if (Math.hypot(ev.clientX - downX, ev.clientY - downY) > 6) return; // drag, not click
   const id = pick(ev);
-  if (id) {
-    focusOn(id);
-    info.showBody(id);
-  }
+  if (id) selectBody(id);
 });
 renderer.domElement.addEventListener("dblclick", (ev) => {
   if (!pick(ev)) {
@@ -195,7 +214,7 @@ renderer.domElement.addEventListener("pointermove", (ev) => {
 });
 
 // --- control panel (spec §8, §14) --------------------------------------------
-new ControlPanel(viewport, {
+const controlPanel = new ControlPanel(viewport, {
   onPlay: () => clock.setPlaying(true),
   onPause: () => clock.setPlaying(false),
   onReset: () => {
@@ -231,6 +250,10 @@ new ControlPanel(viewport, {
     info.hide();
   },
 });
+
+// Register panels with the overlay toggle system (t_30700e13).
+overlay.register("control", controlPanel.element);
+overlay.register("info", info.element);
 
 // --- resize + dispose --------------------------------------------------------
 function onResize(): void {

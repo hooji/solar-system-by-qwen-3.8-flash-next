@@ -78,13 +78,21 @@ src/
   ui/ControlPanel.ts           # 제어 HUD
   ui/InfoPanel.ts              # 툴팁 + 인포 (실값/렌더값 분리 표시)
   ui/Labels.ts                 # CSS2D 한/영 이름표
+  ui/overlayState.ts           # 오버레이 토글 순수 상태·localStorage (t_30700e13)
+  ui/OverlayManager.ts         # 접기 버튼·dock·H 단축키·ARIA·선택 이벤트 (t_30700e13)
 ```
 
 ## 후속 작업자를 위한 계약
 
-- 오버레이 패널 토글(t_30700e13): `.panel` 클래스 요소가 헤더/컨트롤/인포이며,
-  인포 자동 표시는 `InfoPanel.showBody(id)` 호출 지점(main.ts pointerup)을
-  훅이나 이벤트로 확장하면 됩니다.
+- 오버레이 패널 토글(t_30700e13): `ui/overlayState.ts`(순수 상태·localStorage)와
+  `ui/OverlayManager.ts`(DOM·dock·H 단축키·ARIA)가 계층 전체. `.panel`을
+  `overlay.register(id, el)`로 등록하면 개별 접기 버튼이 주입된다.
+  천체 선택은 반드시 `main.ts`의 `selectBody(id)` 1개 경유만 지나며, 여기서
+  `qw:body-selected` 커스텀 이벤트(detail `{id}`)를 발행 → 인포 패널이
+  개별/전역 숨김 상태에서도 자동 표시됨(`__qwOverlay.notifyBodySelected(id)`로
+  직접 호출 가능, 테스트 지점). 토글 상태는 `localStorage["qwsolar.overlay.v1"]`.
+  상태 전이 규칙 검증: `npm test`. 실제 브라우저 검증:
+  `node scripts/overlay-browser-check.mjs` (headless Chrome + CDP, 28 항목).
 - 렌더러 확장(t_a5d73491): `ScaleManager`·`SolarSystem`·`OrbitRenderer`가
   렌더링 계층, `SOLAR_SYSTEM`이 데이터 계층. 두 값을 혼용하지 말 것.
 - 커밋 규약: `<type>: <summary> [<kanban-task-id>]`, 태스크 완료 시 1커밋.
@@ -93,4 +101,3 @@ src/
 
 - focus 거리 모드는 스케일 전환만 제공하며 행성계 확대 전환 애니메이션은
   렌더러 태스크(t_a5d73491)에서 완성 예정.
-- 패널 개별 접기/전역 H 토글·localStorage 복원은 t_30700e13 소관.

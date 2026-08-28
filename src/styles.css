@@ -92,9 +92,85 @@ html, body {
 .label-ko { display: block; font-size: 12px; color: var(--text); }
 .label-en { display: block; font-size: 10px; color: var(--text-dim); }
 
+/* --- overlay toggle system (task t_30700e13) ------------------------------ */
+
+/* Individual collapse button inside every registered panel. */
+.panel-collapse {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 22px;
+  height: 22px;
+  line-height: 1;
+  padding: 0;
+  background: rgba(126, 162, 255, 0.14);
+  border: 1px solid var(--panel-border);
+  color: var(--text);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  z-index: 2;
+}
+.panel-collapse:hover { background: rgba(126, 162, 255, 0.3); }
+.panel-collapse:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* Panels have padding; keep headings clear of the button. */
+.panel[data-panel] { padding-top: 30px; }
+.panel[data-panel] > h1, .panel[data-panel] > h2 { margin-right: 20px; }
+
+/* Collapsed: fade + slide out, and never intercept pointer input. */
+.panel-collapsed {
+  opacity: 0;
+  transform: translateY(6px);
+  pointer-events: none;
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+.panel {
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+body.no-anim .panel, body.no-anim .panel-collapsed { transition: none; }
+
+/* Always-reachable dock: global hide/restore, per-panel restore chips. */
+.overlay-dock {
+  position: fixed;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  z-index: 40; /* above panels: reachable even when everything else is hidden */
+}
+.overlay-dock .dock-btn {
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 5px 10px;
+  cursor: pointer;
+  font-size: 12px;
+  backdrop-filter: blur(6px);
+}
+.overlay-dock .dock-btn:hover { background: rgba(126, 162, 255, 0.3); }
+.overlay-dock .dock-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.overlay-dock .dock-chips { display: flex; gap: 4px; }
+.overlay-dock .dock-chip { border-style: dashed; }
+.overlay-dock[data-collapsed-all="true"] .dock-global { background: rgba(126, 162, 255, 0.4); }
+
+/* Panels sit above the canvas; tooltip above panels; dock above all. */
+.header { z-index: 20; }
+.control-panel { z-index: 20; }
+.info-panel { z-index: 20; }
+.disclaimer { z-index: 20; }
+
+@media (prefers-reduced-motion: reduce) {
+  .panel, .panel-collapsed { transition: none; }
+  .panel-collapsed { transform: none; }
+}
+
 @media (max-width: 720px) {
   .header { max-width: 46vw; }
   .control-panel { width: 42vw; }
   .disclaimer { display: none; }
-  .info-panel { width: calc(100vw - 24px); }
+  .info-panel { width: calc(100vw - 24px); bottom: 52px; } /* clear the dock */
+  .overlay-dock { bottom: 8px; }
 }

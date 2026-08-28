@@ -107,6 +107,11 @@ export class ControlPanel {
   setClock(text: string): void {
     this.clockEl.textContent = text;
   }
+
+  /** Panel element for overlay registration (task t_30700e13). */
+  get element(): HTMLElement {
+    return this.root;
+  }
 }
 
 function btn(label: string, onClick: () => void): HTMLButtonElement {

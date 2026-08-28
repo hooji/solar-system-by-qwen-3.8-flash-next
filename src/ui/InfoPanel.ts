@@ -99,6 +99,11 @@ export class InfoPanel {
     this.root.hidden = true;
   }
 
+  /** Panel element for overlay registration (task t_30700e13). */
+  get element(): HTMLElement {
+    return this.root;
+  }
+
   showTooltip(x: number, y: number, b: CelestialBodyData): void {
     this.tooltip.style.transform = `translate(${x + 12}px, ${y + 12}px)`;
     this.tooltip.textContent = `${b.nameKo} / ${b.nameEn} · ${TYPE_KO[b.type]}`;
