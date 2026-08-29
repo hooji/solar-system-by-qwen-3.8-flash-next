@@ -81,6 +81,7 @@ src/
   core/ScaleManager.ts         # 실데이터→렌더 단위 변환 (3거리·3크기 모드)
   core/SimulationClock.ts      # 배속/재생/정지/리셋
   core/Kepler.ts               # 케플러 방정식 수치해·궤도면 위치 (순수 함수)
+  core/simMath.ts              # 자전각·경사도 매핑 순수 함수 (three/DOM 의존 없음)
   core/SolarSystem.ts          # 씬 그래프: 천체·링·별배경·위성 로컬계·전환 보간
   core/CelestialBody.ts        # Kepler 궤도 운동학·자전·디밍 (공유 지오메트리)
   core/OrbitRenderer.ts        # 궤도선 (init 시 생성, 스케일 변경 시만 갱신)
@@ -111,6 +112,15 @@ src/
   천체가 15% 불투명으로 디밍된다(`CelestialBody.setDimmed`).
   지오메트리는 공유 단위 구 1개(모듈 init 시 생성) — `disposeSharedGeometries()`
   는 `SolarSystem.dispose()`에서만 호출할 것.
+- 시뮬레이션 시간(t_1f6e8acc): 위치·자전·경사도는 오직 누적 `simDays`의 함수
+  (프레임수 무관, 스펙 §7/§8). Kepler 해는 Newton+이분법 브래킷으로 e<1 전
+  구간 안정(`core/Kepler.ts`), 자전각·경사도 매핑은 순수 함수 `core/simMath.ts`
+  `SimulationClock.setTimeScale(daysPerSecond)`, 재생/정지/리셋은
+  `setPlaying/reset` — HUD는 `ControlPanel.setStatus()`가 초당 최대 5회 갱신
+  (경과 시간·현재 배속·재생 상태). 크기/거리 모드 전환 보간과 카메라 트윈은
+  실시간 dt 기반(`SolarSystem.update(simDays, dtSec)`) — 60fps 가정이 없다.
+  검증: `node scripts/sim-time.test.mjs` (22 항목, 순수 수학),
+  autotest의 `t_clock_*` 태그(정지 동결·리셋·배속), `scripts/hud-check.sh`.
 - 커밋 규약: `<type>: <summary> [<kanban-task-id>]`, 태스크 완료 시 1커밋.
 
 ## Known-limitations (이 단계 기준)

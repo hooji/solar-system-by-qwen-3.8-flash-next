@@ -9,6 +9,7 @@
 import * as THREE from "three";
 import type { CelestialBodyData } from "../data/solarSystemData";
 import type { ScaleManager, PlanePoint } from "./ScaleManager";
+import { inclinationComponents } from "./simMath";
 
 const DEFAULT_OPACITY = 0.3;
 
@@ -58,7 +59,6 @@ export class OrbitRenderer {
     const d = this.body;
     const a = d.semiMajorAxis ?? 0;
     const e = d.eccentricity ?? 0;
-    const inc = THREE.MathUtils.degToRad(d.inclinationDeg ?? 0);
     const isMoon = d.type === "moon";
 
     const needsAnchor = !isMoon && scale.focusActive && !!anchor;
@@ -106,8 +106,9 @@ export class OrbitRenderer {
       }
 
       this.positions[i * 3] = x;
-      this.positions[i * 3 + 1] = cz * Math.sin(inc);
-      this.positions[i * 3 + 2] = cz * Math.cos(inc);
+      const tilt = inclinationComponents(cz, d.inclinationDeg ?? 0);
+      this.positions[i * 3 + 1] = tilt.y;
+      this.positions[i * 3 + 2] = tilt.z;
     }
     const attr = this.line.geometry.getAttribute("position") as THREE.BufferAttribute;
     attr.needsUpdate = true;

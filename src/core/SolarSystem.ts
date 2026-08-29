@@ -314,7 +314,7 @@ export class SolarSystem {
   refreshScales(simDays: number): void {
     this.transitionT = 1;
     this.syncParentRadii();
-    this.update(simDays);
+    this.update(simDays, 1);
     this.refreshOrbits();
   }
 
@@ -328,12 +328,17 @@ export class SolarSystem {
     }
   }
 
-  /** Per-frame update: positions from accumulated simDays (spec §7/§8). */
-  update(simDays: number): void {
+  /**
+   * Per-frame update: positions from accumulated simDays (spec §7/§8) —
+   * purely sim-time driven, so identical at any frame rate. `dtSec` is REAL
+   * seconds since last frame (clamped by the caller) and drives ONLY the
+   * scale-change transition blend (spec §13/§16: no 60fps assumption).
+   */
+  update(simDays: number, dtSec = 1 / 60): void {
     this.lastSimDays = simDays;
     const anchor = this.scale.anchorPlanePositionAU(simDays);
     if (this.transitionT < 1) {
-      this.transitionT = Math.min(1, this.transitionT + 1 / (TRANSITION_SECONDS * 60));
+      this.transitionT = Math.min(1, this.transitionT + dtSec / TRANSITION_SECONDS);
     }
     const k = easeInOut(this.transitionT);
 

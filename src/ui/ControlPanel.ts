@@ -3,7 +3,7 @@
  * framework-free; the panel show/hide toggle system (task t_30700e13) builds
  * on top of the `.panel` elements and the callbacks exposed here.
  */
-import { TIME_SCALE_PRESETS } from "../core/SimulationClock";
+import { TIME_SCALE_PRESETS, timeScaleLabelKo } from "../core/SimulationClock";
 import type { DistanceMode, SizeMode } from "../core/ScaleManager";
 
 export interface ControlPanelCallbacks {
@@ -23,6 +23,10 @@ export interface ControlPanelCallbacks {
 export class ControlPanel {
   private readonly root: HTMLElement;
   private readonly clockEl: HTMLElement;
+  private readonly playBtn: HTMLButtonElement;
+  private readonly pauseBtn: HTMLButtonElement;
+  private readonly speedSel: HTMLSelectElement;
+  private readonly speedLabel: HTMLElement;
 
   constructor(container: HTMLElement, cb: ControlPanelCallbacks) {
     this.root = document.createElement("aside");
@@ -36,7 +40,8 @@ export class ControlPanel {
     header.appendChild(title);
     this.root.appendChild(header);
 
-    // Transport row.
+    // Transport row. `.active` shows which state the clock is in (spec §8:
+    // current time & speed state must be clearly displayed).
     const transport = document.createElement("div");
     transport.className = "row";
     const play = btn("재생", () => cb.onPlay());
@@ -44,6 +49,8 @@ export class ControlPanel {
     const reset = btn("리셋", () => cb.onReset());
     transport.append(play, pause, reset);
     this.root.appendChild(transport);
+    this.playBtn = play;
+    this.pauseBtn = pause;
 
     // Time scale.
     const tsRow = document.createElement("div");
@@ -60,9 +67,14 @@ export class ControlPanel {
     sel.addEventListener("change", () => cb.onTimeScale(parseFloat(sel.value)));
     tsRow.appendChild(sel);
     this.root.appendChild(tsRow);
+    this.speedSel = sel;
+    this.speedLabel = document.createElement("span");
+    this.speedLabel.className = "sim-speed";
+    tsRow.appendChild(this.speedLabel);
 
     this.clockEl = document.createElement("div");
     this.clockEl.className = "row sim-clock";
+    this.clockEl.setAttribute("aria-live", "off");
     this.root.appendChild(this.clockEl);
 
     // Distance mode.
@@ -104,8 +116,27 @@ export class ControlPanel {
     container.appendChild(this.root);
   }
 
-  setClock(text: string): void {
-    this.clockEl.textContent = text;
+  /**
+   * Live transport/speed readout (spec §8): elapsed sim time, the ACTIVE
+   * time-scale label, and play state. Called at most 5×/s from the frame
+   * loop (spec §16: update HUD only when necessary).
+   */
+  setStatus(status: {
+    clockText: string;
+    playing: boolean;
+    daysPerSecond: number;
+  }): void {
+    this.clockEl.textContent = status.clockText;
+    this.playBtn.classList.toggle("active", status.playing);
+    this.pauseBtn.classList.toggle("active", !status.playing);
+    this.playBtn.setAttribute("aria-pressed", String(status.playing));
+    this.pauseBtn.setAttribute("aria-pressed", String(!status.playing));
+    // Keep the selector in sync even if the speed was changed programmatically.
+    const opt = String(status.daysPerSecond);
+    if (this.speedSel.value !== opt && [...this.speedSel.options].some((o) => o.value === opt)) {
+      this.speedSel.value = opt;
+    }
+    this.speedLabel.textContent = `현재 ${timeScaleLabelKo(status.daysPerSecond)}${status.playing ? " · 재생 중" : " · 정지"}`;
   }
 
   /** Panel element for overlay registration (task t_30700e13). */

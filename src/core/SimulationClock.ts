@@ -15,6 +15,15 @@ export const TIME_SCALE_PRESETS: readonly TimeScalePreset[] = [
   { label: "1초 = 1년", daysPerSecond: 365.25 },
 ];
 
+/** Korean label for a days-per-second value (preset label if exact, else generated). */
+export function timeScaleLabelKo(daysPerSecond: number): string {
+  const match = TIME_SCALE_PRESETS.find((p) => p.daysPerSecond === daysPerSecond);
+  if (match) return match.label;
+  return daysPerSecond >= 1
+    ? `1초 = ${daysPerSecond.toLocaleString("ko-KR", { maximumFractionDigits: 1 })}일`
+    : `1초 = ${(daysPerSecond * 24).toLocaleString("ko-KR", { maximumFractionDigits: 1 })}시간`;
+}
+
 export class SimulationClock {
   /** Accumulated simulation time since epoch (simulated days from J2000). */
   simDays = 0;

@@ -113,6 +113,8 @@ interface Tween {
   t: number;
 }
 let tween: Tween | null = null;
+/** Tween duration in REAL seconds (frame-rate independent, spec §8/§16). */
+const CAMERA_TWEEN_SECONDS = 1.0;
 
 function easeInOut(t: number): number {
   return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
@@ -449,6 +451,31 @@ if (import.meta.env.VITE_VERIFY === "1") {
       clock.reset(days);
       solar.refreshScales(days);
     },
+    /** Transport wiring for headless verification (spec §8). */
+    setPlaying: (v: boolean) => clock.setPlaying(v),
+    setTimeScale: (d: number) => clock.setTimeScale(d),
+    resetClock: () => {
+      clock.reset();
+      solar.refreshScales(clock.simDays);
+    },
+    clockState: () => ({
+      simDays: +clock.simDays.toFixed(4),
+      playing: clock.playing,
+      daysPerSecond: clock.daysPerSecond,
+    }),
+    /** Body's absolute world position (finite-check helper). */
+    worldPos: (id: string) => {
+      const b = solar.bodies.get(id);
+      if (!b) return null;
+      const v = new THREE.Vector3();
+      b.group.getWorldPosition(v);
+      return [+v.x.toFixed(3), +v.y.toFixed(3), +v.z.toFixed(3)];
+    },
+    /** Axial spin angle (rad) of a body's mesh — for rotation verification. */
+    spinRad: (id: string) => {
+      const m = solar.bodies.get(id)?.mesh;
+      return m ? +m.rotation.y.toFixed(4) : null;
+    },
     report,
     starFieldVisible: () => {
       let v = false;
@@ -483,6 +510,11 @@ if (import.meta.env.VITE_VERIFY === "1") {
       [1500, () => api.setDistanceMode("log")],
       [1600, () => { api.setSimDays(T); log("t_back_global"); }],
       [1700, () => { api.select("saturn"); api.setSimDays(T + 40); log("t_focus_saturn_motion", { anchor: "saturn" }); }],
+      // Transport contract (spec §8): speed change + pause freeze + reset.
+      [1750, () => { api.setTimeScale(100); api.setPlaying(false); }],
+      [1850, () => log("t_clock_paused_a", { clock: api.clockState() })],
+      [1950, () => log("t_clock_paused_b", { clock: api.clockState() })],
+      [2050, () => { api.resetClock(); api.setPlaying(true); log("t_clock_reset", { clock: api.clockState() }); }],
     ];
     if (new URLSearchParams(location.search).get("moondump") === "1") {
       const dump: Record<string, string | number> = {};

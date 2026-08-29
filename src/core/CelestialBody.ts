@@ -9,8 +9,7 @@ import * as THREE from "three";
 import type { CelestialBodyData } from "../data/solarSystemData";
 import { type ScaleManager, bodyPhaseRad, type PlanePoint } from "./ScaleManager";
 import { ellipsePlanePosition } from "./Kepler";
-
-const TWO_PI = Math.PI * 2;
+import { inclinationComponents, spinAngleRad } from "./simMath";
 
 /**
  * Shared unit sphere — created once at module init and reused by every body
@@ -119,9 +118,9 @@ export class CelestialBody {
     if (d.type === "moon") {
       const dist = this.moonRenderDistance(pos.r, scale);
       const theta = Math.atan2(pos.y, pos.x);
-      const inc = THREE.MathUtils.degToRad(d.inclinationDeg ?? 0);
       const cz = dist * Math.sin(theta);
-      this.group.position.set(dist * Math.cos(theta), cz * Math.sin(inc), cz * Math.cos(inc));
+      const tilt = inclinationComponents(cz, d.inclinationDeg ?? 0);
+      this.group.position.set(dist * Math.cos(theta), tilt.y, tilt.z);
     } else {
       scale.mapHeliocentricPlanePoint(pos, anchor, this.planeOut);
       scale.applyInclination(this.planeOut, d.inclinationDeg ?? 0, this.group.position);
@@ -159,9 +158,7 @@ export class CelestialBody {
 
   /** Axial rotation from the REAL period; negative period = retrograde spin. */
   private applySpin(simDays: number): void {
-    const rot = this.data.rotationPeriodHours;
-    if (rot === undefined || rot === 0) return;
-    this.mesh.rotation.y = ((simDays * 24) / rot) * TWO_PI;
+    this.mesh.rotation.y = spinAngleRad(simDays, this.data.rotationPeriodHours);
   }
 
   dispose(): void {

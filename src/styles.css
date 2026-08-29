@@ -59,6 +59,7 @@ html, body {
   border: 1px solid var(--panel-border); border-radius: 6px; padding: 2px 4px;
 }
 .sim-clock { color: var(--text-dim); font-variant-numeric: tabular-nums; }
+.sim-speed { color: var(--text-dim); margin-left: 6px; font-variant-numeric: tabular-nums; }
 
 .info-panel { bottom: 12px; left: 12px; width: min(340px, calc(100vw - 24px)); }
 .info-panel h2 { margin: 0 0 6px; font-size: 14px; }
