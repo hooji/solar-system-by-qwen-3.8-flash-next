@@ -1,6 +1,8 @@
 /**
  * SolarSystem — scene-graph assembly. Owns CelestialBody + OrbitRenderer
  * instances, the Sun light, star field, rings and procedural textures.
+ * Handles scale-mode CHANGES as smooth interpolations (spec §13: never
+ * switch abruptly) and the detail-view reveal for the selected system.
  * No UI logic here (spec §17 separation).
  */
 import * as THREE from "three";
@@ -10,9 +12,12 @@ import {
   getChildrenOf,
   type CelestialBodyData,
 } from "../data/solarSystemData";
-import { CelestialBody } from "./CelestialBody";
+import { CelestialBody, disposeSharedGeometries } from "./CelestialBody";
 import { OrbitRenderer } from "./OrbitRenderer";
-import { ScaleManager } from "./ScaleManager";
+import type { ScaleManager } from "./ScaleManager";
+
+/** Seconds over which scale-mode / system changes are interpolated. */
+const TRANSITION_SECONDS = 0.7;
 
 /** Procedural banded/variation CanvasTexture (spec §12: no external images). */
 function makeBandedTexture(base: string, bandColor: string): THREE.CanvasTexture | null {
@@ -36,6 +41,38 @@ function makeBandedTexture(base: string, bandColor: string): THREE.CanvasTexture
   return tex;
 }
 
+/** Blue-green marble tone for Earth, procedural (spec §12 recognisability). */
+function makeEarthTexture(): THREE.CanvasTexture | null {
+  const size = 256;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+  ctx.fillStyle = "#1c4f8b";
+  ctx.fillRect(0, 0, size, size);
+  ctx.fillStyle = "#3f7a3a";
+  // simple deterministic "continents"
+  for (let i = 0; i < 14; i++) {
+    const x = (i * 71) % size;
+    const y = (i * 47 + 20) % size;
+    ctx.beginPath();
+    ctx.ellipse(x, y, 14 + (i % 5) * 6, 9 + (i % 3) * 5, i * 0.5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 0.35;
+  ctx.fillStyle = "#ffffff";
+  for (let i = 0; i < 10; i++) {
+    ctx.beginPath();
+    ctx.ellipse((i * 53 + 15) % size, (i * 97) % size, 22, 6, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
 export class SolarSystem {
   readonly root = new THREE.Group();
   readonly bodies = new Map<string, CelestialBody>();
@@ -45,7 +82,17 @@ export class SolarSystem {
   private starField: THREE.Points | null = null;
   private readonly disposables: { dispose(): void }[] = [];
 
-  constructor(private readonly scene: THREE.Scene, private readonly scale: ScaleManager) {
+  /** Smooth scale-change state (spec §13): blend prev→cur render positions. */
+  private transitionT = 1;
+  private readonly prevPositions = new Map<string, THREE.Vector3>();
+  private readonly prevRadii = new Map<string, number>();
+  /** Scratch — no per-frame allocation (spec §16). */
+  private readonly tmpPos = new THREE.Vector3();
+
+  constructor(
+    private readonly scene: THREE.Scene,
+    private readonly scale: ScaleManager,
+  ) {
     this.build();
   }
 
@@ -60,7 +107,9 @@ export class SolarSystem {
       const body = new CelestialBody(data, idx);
 
       if (data.render?.banded) {
-        const tex = makeBandedTexture(data.displayColor, "#2a2018");
+        const tex = data.id === "earth"
+          ? makeEarthTexture()
+          : makeBandedTexture(data.displayColor, data.id === "saturn" || data.id === "jupiter" ? "#2a2018" : "#101820");
         if (tex) {
           const mat = body.mesh.material as THREE.MeshStandardMaterial;
           mat.map = tex;
@@ -69,10 +118,10 @@ export class SolarSystem {
         }
       }
 
-      // Saturn (mandatory) / Uranus (when practical) rings (spec §12).
+      // Saturn (mandatory) / Uranus (thin, spec §12) rings.
       if (data.render?.hasRings) {
         const ring = this.makeRing(data);
-        if (ring) body.group.add(ring);
+        if (ring) body.tiltGroup.add(ring);
       }
 
       // Moons live under the parent's group → whole system travels with it.
@@ -103,6 +152,8 @@ export class SolarSystem {
     this.scene.add(this.root);
     this.starField = this.makeStarField();
     if (this.starField) this.scene.add(this.starField);
+
+    this.setSystemRevealed(null);
   }
 
   private makeRing(data: CelestialBodyData): THREE.Mesh | null {
@@ -112,9 +163,15 @@ export class SolarSystem {
     const ctx = canvas.getContext("2d");
     if (!ctx) return null;
     const grad = ctx.createLinearGradient(0, 0, 64, 0);
-    grad.addColorStop(0, "rgba(210,190,150,0.05)");
-    grad.addColorStop(0.5, "rgba(230,210,170,0.55)");
-    grad.addColorStop(1, "rgba(190,170,140,0.08)");
+    if (data.id === "uranus") {
+      grad.addColorStop(0, "rgba(170,210,215,0.02)");
+      grad.addColorStop(0.5, "rgba(190,225,230,0.28)");
+      grad.addColorStop(1, "rgba(160,200,210,0.04)");
+    } else {
+      grad.addColorStop(0, "rgba(210,190,150,0.05)");
+      grad.addColorStop(0.5, "rgba(230,210,170,0.55)");
+      grad.addColorStop(1, "rgba(190,170,140,0.08)");
+    }
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, 64, 64);
     const tex = new THREE.CanvasTexture(canvas);
@@ -122,7 +179,7 @@ export class SolarSystem {
     const inner = data.render?.ringInnerScale ?? 1.3;
     const outer = data.render?.ringOuterScale ?? 2.2;
     const geo = new THREE.RingGeometry(inner, outer, 96);
-    // remap UV so the gradient spans inner→outer radially
+    // Remap UV so the gradient spans inner→outer radially.
     const pos = geo.getAttribute("position");
     const uv = geo.getAttribute("uv");
     const v3 = new THREE.Vector3();
@@ -139,8 +196,7 @@ export class SolarSystem {
       depthWrite: false,
     });
     const mesh = new THREE.Mesh(geo, mat);
-    mesh.rotation.x = Math.PI / 2; // lies in planet's XZ plane (equatorial)
-    mesh.userData.ringScales = { inner, outer };
+    mesh.rotation.x = Math.PI / 2; // lies in the planet's equatorial (XZ) plane
     mesh.name = `ring:${data.id}`;
     this.disposables.push(geo, mat, tex);
     return mesh;
@@ -177,34 +233,135 @@ export class SolarSystem {
     for (const body of this.bodies.values()) {
       const d = body.data;
       if (d.type !== "moon" || !d.parentId) continue;
-      const parent = this.bodies.get(d.parentId);
       const sibs = getChildrenOf(d.parentId);
-      const aVals = sibs.map((s) => s.semiMajorAxis ?? 0);
-      const range = { minKm: Math.min(...aVals), maxKm: Math.max(...aVals) };
+      // Range must cover the FULL radial span, not just the semi-major axes:
+      // an eccentric orbit's r reaches a(1+e) at apoapsis, and single-moon
+      // systems (e.g. Moon, Triton) would otherwise have min==max and blow
+      // past the 2.5×–9× band (log1p overshoot).
+      const loVals = sibs.map((s) => (s.semiMajorAxis ?? 0) * (1 - (s.eccentricity ?? 0)));
+      const hiVals = sibs.map((s) => (s.semiMajorAxis ?? 0) * (1 + (s.eccentricity ?? 0)));
+      const range = { minKm: Math.min(...loVals), maxKm: Math.max(...hiVals) };
       for (const s of sibs) {
         const cb = this.bodies.get(s.id);
         if (cb) cb.moonDistanceRange = range;
       }
-      void parent;
     }
   }
 
-  /** Re-map positions, radii, orbit lines after a scale-mode change. */
-  refreshScales(simDays: number): void {
-    for (const body of this.bodies.values()) {
-      if (body.data.type === "moon") {
-        const parent = body.data.parentId ? this.bodies.get(body.data.parentId) : undefined;
-        body.parentRenderRadius = parent?.renderRadius ?? 1;
-      }
-      body.updateFromSim(simDays, this.scale);
+  /**
+   * Begin an eased transition: capture current render positions/radii as the
+   * "from" state; update() then interpolates to the new mapping over
+   * TRANSITION_SECONDS (spec §13: interpolate scale changes, never snap).
+   */
+  beginTransition(): void {
+    this.prevPositions.clear();
+    this.prevRadii.clear();
+    for (const [id, b] of this.bodies) {
+      this.prevPositions.set(id, b.group.position.clone());
+      this.prevRadii.set(id, b.renderRadius);
     }
+    this.transitionT = 0;
+    this.refreshOrbits(); // orbit LINES move to the new mapping immediately
+  }
+
+  /** Re-apply current scales with a smooth transition (mode change entry). */
+  animateScaleChange(): void {
+    this.beginTransition();
+  }
+
+  /**
+   * Detail-view reveal (spec §13): selected planet's moon orbit lines become
+   * clear, other systems' moon lines stay hidden-ish. selectedId=null opens
+   * the global view.
+   */
+  setSystemRevealed(selectedId: string | null): void {
+    const parentSel =
+      selectedId && selectedId !== "sun"
+        ? (this.bodies.get(selectedId)?.data.type === "moon"
+            ? this.bodies.get(selectedId)?.data.parentId ?? null
+            : selectedId)
+        : null;
+    for (const [id, orbit] of this.orbits) {
+      const d = this.bodies.get(id)?.data;
+      if (!d) continue;
+      orbit.setSystemRevealed(d.type === "moon" && d.parentId === parentSel);
+    }
+    // Spec §13 detail view: dim unrelated planets/moons, keep the selected
+    // system (and, in the global view, everything) at full brightness.
+    for (const body of this.bodies.values()) {
+      const d = body.data;
+      const related =
+        parentSel === null ||
+        d.id === parentSel ||
+        (d.type === "moon" && d.parentId === parentSel);
+      body.setDimmed(!related);
+    }
+    this.refreshOrbits(); // moon ring widths follow the system boost
+  }
+
+  /** Rebuild orbit lines from the active scale mode (buffers reused). */
+  private refreshOrbits(): void {
+    const anchor = this.scale.anchorPlanePositionAU(this.lastSimDays);
     for (const [id, orbit] of this.orbits) {
       const body = this.bodies.get(id);
       if (!body) continue;
       const parentR = body.data.type === "moon" ? body.parentRenderRadius : 0;
-      orbit.refresh(this.scale, parentR, body.moonDistanceRange);
+      orbit.refresh(this.scale, parentR, body.moonDistanceRange, anchor);
+    }
+  }
+
+  /** Immediate re-map (no transition): used at init and by the sim-time task. */
+  refreshScales(simDays: number): void {
+    this.transitionT = 1;
+    this.syncParentRadii();
+    this.update(simDays);
+    this.refreshOrbits();
+  }
+
+  private lastSimDays = 0;
+  /** Moons map distances from parentRenderRadius — update it first. */
+  private syncParentRadii(): void {
+    for (const body of this.bodies.values()) {
+      if (body.data.type !== "moon") continue;
+      const parent = body.data.parentId ? this.bodies.get(body.data.parentId) : undefined;
+      if (parent) body.parentRenderRadius = parent.renderRadius || scaleRadiusOf(parent, this.scale);
+    }
+  }
+
+  /** Per-frame update: positions from accumulated simDays (spec §7/§8). */
+  update(simDays: number): void {
+    this.lastSimDays = simDays;
+    const anchor = this.scale.anchorPlanePositionAU(simDays);
+    if (this.transitionT < 1) {
+      this.transitionT = Math.min(1, this.transitionT + 1 / (TRANSITION_SECONDS * 60));
+    }
+    const k = easeInOut(this.transitionT);
+
+    this.syncParentRadii();
+    for (const body of this.bodies.values()) {
+      body.updateFromSim(simDays, this.scale, anchor);
+      if (k < 1) {
+        // Interpolate from the captured pre-change state (spec §13).
+        const from = this.prevPositions.get(body.data.id);
+        if (from) {
+          this.tmpPos.copy(body.group.position); // target written by updateFromSim
+          body.group.position.lerpVectors(from, this.tmpPos, k);
+        }
+        const rFrom = this.prevRadii.get(body.data.id);
+        if (rFrom !== undefined && rFrom > 0) {
+          const r = THREE.MathUtils.lerp(rFrom, body.renderRadius, k);
+          body.mesh.scale.setScalar(r);
+        }
+      }
+    }
+    if (this.transitionT >= 1) {
+      this.prevPositions.clear();
+      this.prevRadii.clear();
     }
     this.syncRings();
+    // Focus-mode anchor moves each frame → lines must follow (signature-gated
+    // internally, so this is cheap in log/linear modes).
+    this.refreshOrbits();
   }
 
   /** Keep ring geometry at planet render scale (unit-space rings). */
@@ -213,17 +370,6 @@ export class SolarSystem {
       if (!body.data.render?.hasRings) continue;
       const ring = body.group.getObjectByName(`ring:${body.data.id}`);
       if (ring) ring.scale.setScalar(body.renderRadius);
-      // Axial tilt for the planet group so rings sit in the equatorial plane.
-      if (body.data.axialTiltDeg !== undefined) {
-        body.mesh.rotation.z = THREE.MathUtils.degToRad(body.data.axialTiltDeg);
-        ring?.rotateZ?.(0);
-      }
-    }
-  }
-
-  update(simDays: number): void {
-    for (const body of this.bodies.values()) {
-      body.updateFromSim(simDays, this.scale);
     }
   }
 
@@ -243,8 +389,17 @@ export class SolarSystem {
   dispose(): void {
     for (const o of this.orbits.values()) o.dispose();
     for (const b of this.bodies.values()) b.dispose();
+    disposeSharedGeometries(); // owned by the scene builder, freed once here
     for (const d of this.disposables) d.dispose();
     this.scene.remove(this.root);
     if (this.starField) this.scene.remove(this.starField);
   }
+}
+
+function easeInOut(t: number): number {
+  return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+}
+
+function scaleRadiusOf(body: CelestialBody, scale: ScaleManager): number {
+  return scale.mapBodyRadius(body.data);
 }

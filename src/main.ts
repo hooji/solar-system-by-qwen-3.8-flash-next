@@ -73,18 +73,20 @@ const labels = new Labels();
 labels.attach(solar);
 
 let selectedId: string | null = null;
-let focusModeCenter = new THREE.Vector3(); // used by 'focus' distance mode
 
 const info = new InfoPanel(viewport, scale, (b) => {
   const body = solar.bodies.get(b.id);
-  const r = body?.renderRadius ?? 0;
-  const dist =
-    b.type === "star"
-      ? 0
-      : b.type === "moon" && body
-        ? body.moonRenderDistance(b.semiMajorAxis ?? 0, scale)
-        : scale.mapHeliocentricDistance(b.semiMajorAxis ?? 0);
-  return { distance: dist, radius: r };
+  const dist = scale.renderedDistanceOf(
+    b.id,
+    clock.simDays,
+    body?.moonDistanceRange ?? null,
+    body?.parentRenderRadius ?? 1,
+  );
+  return {
+    distance: dist?.units ?? 0,
+    radius: body?.renderRadius ?? scale.mapBodyRadius(b),
+    fromLabelKo: dist?.fromLabelKo ?? "—",
+  };
 });
 
 // Header + disclaimer (spec §14).
@@ -118,6 +120,14 @@ function easeInOut(t: number): number {
 
 function focusOn(id: string | null): void {
   selectedId = id;
+  scale.selectedId = id;
+  // Focus distance mode anchors on the selected planet/dwarf (spec §4/§13);
+  // selecting a moon anchors on its parent so the whole system stays centred.
+  const sel = id ? getBodyById(id) : undefined;
+  const anchorId = sel && sel.type !== "star" ? (sel.type === "moon" ? sel.parentId ?? sel.id : sel.id) : null;
+  scale.focusAnchorId = anchorId;
+  solar.setSystemRevealed(id);
+  solar.animateScaleChange();
   for (const [bid, orbit] of solar.orbits) {
     orbit.setHighlighted(bid === id);
   }
@@ -130,8 +140,8 @@ function focusOn(id: string | null): void {
     if (!body) return;
     body.group.getWorldPosition(worldTarget);
     dist = Math.max(body.renderRadius * 6, 6);
-    if (body.data.type === "moon" || body.data.type === "planet" || body.data.type === "dwarf-planet") {
-      const systemKey = body.data.type === "moon" ? body.data.parentId : body.data.id;
+    const systemKey = body.data.type === "moon" ? body.data.parentId : body.data.id;
+    if (systemKey) {
       const maxR = Math.max(
         1,
         ...[...solar.bodies.values()]
@@ -141,7 +151,6 @@ function focusOn(id: string | null): void {
       dist = Math.max(dist, maxR * 2.6, body.renderRadius * 5);
     }
   }
-  const dir = camera.position.clone().sub(controls.target).normalize();
   tween = {
     fromPos: camera.position.clone(),
     fromTarget: controls.target.clone(),
@@ -149,8 +158,6 @@ function focusOn(id: string | null): void {
     dist,
     t: 0,
   };
-  // keep current viewing direction, just move target + adjust distance
-  tween.toTarget.addScaledVector(dir, 0); // target only; camera computed per frame
 }
 
 // --- picking (spec §10) ------------------------------------------------------
@@ -226,16 +233,12 @@ const controlPanel = new ControlPanel(viewport, {
   onTimeScale: (d) => clock.setTimeScale(d),
   onDistanceMode: (m) => {
     scale.distanceMode = m;
-    if (m === "focus" && selectedId) {
-      solar.bodies.get(selectedId)?.group.getWorldPosition(focusModeCenter);
-    } else {
-      focusModeCenter.set(0, 0, 0);
-    }
-    solar.refreshScales(clock.simDays);
+    if (m === "focus" && !scale.focusAnchorId) scale.focusAnchorId = "earth";
+    solar.animateScaleChange();
   },
   onSizeMode: (m) => {
     scale.sizeMode = m;
-    solar.refreshScales(clock.simDays);
+    solar.animateScaleChange();
   },
   onToggleOrbits: (v) => solar.setOrbitsVisible(v),
   onToggleLabels: (v) => labels.setVisible(v),
@@ -284,6 +287,58 @@ function formatSimDate(): string {
 let lastHud = 0;
 function frame(realMs: number): void {
   requestAnimationFrame(frame);
+
+// --- optional interaction-free test API (verification builds only) ----------
+// Enabled with `npm run dev -- --mode verify` (or VITE_VERIFY=1); never
+// active in a normal dev/prod run, so the shipped demo stays clean.
+if (import.meta.env.VITE_VERIFY === "1") {
+  interface QwVerifyApi {
+    setDistanceMode(m: DistanceMode): void;
+    setSizeMode(m: SizeMode): void;
+    select(id: string | null): void;
+    report(): {
+      simDays: number;
+      bodies: number;
+      finite: boolean;
+      helioRenderPos: Record<string, [number, number, number]>;
+      selectedRadius: number | null;
+    };
+  }
+  const api: QwVerifyApi = {
+    setDistanceMode: (m) => {
+      scale.distanceMode = m;
+      if (m === "focus" && !scale.focusAnchorId) scale.focusAnchorId = "earth";
+      solar.animateScaleChange();
+    },
+    setSizeMode: (m) => {
+      scale.sizeMode = m;
+      solar.animateScaleChange();
+    },
+    select: (id) => {
+      focusOn(id);
+      if (id) info.showBody(id);
+      else info.hide();
+    },
+    report: () => {
+      const pos: Record<string, [number, number, number]> = {};
+      let finite = true;
+      for (const [id, b] of solar.bodies) {
+        if (b.data.type === "moon") continue;
+        const p = b.group.position;
+        if (!Number.isFinite(p.x) || !Number.isFinite(p.y) || !Number.isFinite(p.z)) finite = false;
+        pos[id] = [+p.x.toFixed(2), +p.y.toFixed(2), +p.z.toFixed(2)];
+      }
+      return {
+        simDays: +clock.simDays.toFixed(3),
+        bodies: solar.bodies.size,
+        finite,
+        helioRenderPos: pos,
+        selectedRadius: selectedId ? (solar.bodies.get(selectedId)?.renderRadius ?? null) : null,
+      };
+    },
+  };
+  (window as unknown as { __qwVerify?: QwVerifyApi }).__qwVerify = api;
+}
   clock.update(realMs);
   solar.update(clock.simDays);
 
@@ -319,3 +374,129 @@ const clockElGetter = (): HTMLElement | null =>
 };
 
 requestAnimationFrame(frame);
+
+// --- optional interaction-free test API (verification builds only) ----------
+// Enabled with VITE_VERIFY=1; with ?autotest=1 in the URL it also runs a
+// scripted mode-switch/selection sweep and logs `QWVERIFY {json}` lines.
+// Never active in a normal dev/prod run, so the shipped demo stays clean.
+if (import.meta.env.VITE_VERIFY === "1") {
+  interface QwVerifyReport {
+    simDays: number;
+    bodies: number;
+    finite: boolean;
+    maxAbs: number;
+    rings: number;
+    starsVisible: boolean;
+    labelsVisible: number;
+    helioRenderPos: Record<string, [number, number, number]>;
+    selectedRadius: number | null;
+    moonRenderMax: number;
+  }
+  const report = (): QwVerifyReport => {
+    const pos: Record<string, [number, number, number]> = {};
+    let finite = true;
+    let maxAbs = 0;
+    let moonRenderMax = 0;
+    for (const [id, b] of solar.bodies) {
+      const p = b.group.position;
+      if (!Number.isFinite(p.x) || !Number.isFinite(p.y) || !Number.isFinite(p.z)) finite = false;
+      const m = Math.max(Math.abs(p.x), Math.abs(p.y), Math.abs(p.z));
+      if (b.data.type === "moon") moonRenderMax = Math.max(moonRenderMax, m);
+      else {
+        pos[id] = [+p.x.toFixed(2), +p.y.toFixed(2), +p.z.toFixed(2)];
+        maxAbs = Math.max(maxAbs, m);
+      }
+    }
+    let rings = 0;
+    let starsVisible = false;
+    scene.traverse((o) => {
+      if (o.name.startsWith("ring:")) rings++;
+      const asPoints = o as THREE.Points;
+      if (asPoints.isPoints) starsVisible = starsVisible || asPoints.visible;
+    });
+    let labelsVisible = 0;
+    for (const l of solar.labelObjects.values()) if (l.visible) labelsVisible++;
+    return {
+      simDays: +clock.simDays.toFixed(3),
+      bodies: solar.bodies.size,
+      finite,
+      maxAbs: +maxAbs.toFixed(1),
+      rings,
+      starsVisible,
+      labelsVisible,
+      helioRenderPos: pos,
+      selectedRadius: selectedId ? (solar.bodies.get(selectedId)?.renderRadius ?? null) : null,
+      moonRenderMax: +moonRenderMax.toFixed(2),
+    };
+  };
+  const api = {
+    setDistanceMode: (m: "log" | "linear" | "focus") => {
+      scale.distanceMode = m;
+      if (m === "focus" && !scale.focusAnchorId) scale.focusAnchorId = "earth";
+      solar.animateScaleChange();
+    },
+    setSizeMode: (m: "enhanced" | "relative" | "uniform") => {
+      scale.sizeMode = m;
+      solar.animateScaleChange();
+    },
+    select: (id: string | null) => {
+      focusOn(id);
+      if (id) info.showBody(id);
+      else info.hide();
+    },
+    /** Deterministic time travel for headless verification (no rAF needed). */
+    setSimDays: (days: number) => {
+      clock.reset(days);
+      solar.refreshScales(days);
+    },
+    report,
+    starFieldVisible: () => {
+      let v = false;
+      scene.traverse((o) => {
+        if ((o as THREE.Points).isPoints) v = o.visible;
+      });
+      return v;
+    },
+  };
+  (window as unknown as { __qwVerify?: typeof api }).__qwVerify = api;
+
+  if (new URLSearchParams(location.search).get("autotest") === "1") {
+    const log = (tag: string, extra: Record<string, unknown> = {}) =>
+      console.log("QWVERIFY", JSON.stringify({ tag, ...api.report(), ...extra }));
+    // Deterministic sweep: advance simulation time explicitly, then switch
+    // modes; refreshScales() recomputes immediately so this verifies the
+    // mapping regardless of headless rAF throttling.
+    const T = 1250; // sim days — distinct planets at distinct anomalies
+    const steps: [number, () => void][] = [
+      [200, () => { api.setSimDays(T); log("t_log_enhanced"); }],
+      [400, () => api.setSizeMode("relative")],
+      [500, () => { api.setSimDays(T); log("t_size_relative"); }],
+      [600, () => api.setSizeMode("uniform")],
+      [700, () => { api.setSimDays(T); log("t_size_uniform"); }],
+      [800, () => api.setSizeMode("enhanced")],
+      [900, () => api.setDistanceMode("linear")],
+      [1000, () => { api.setSimDays(T); log("t_dist_linear"); }],
+      [1100, () => api.select("jupiter")],
+      [1200, () => api.setDistanceMode("focus")],
+      [1300, () => { api.setSimDays(T); log("t_focus_jupiter", { anchor: "jupiter" }); }],
+      [1400, () => api.select(null)],
+      [1500, () => api.setDistanceMode("log")],
+      [1600, () => { api.setSimDays(T); log("t_back_global"); }],
+      [1700, () => { api.select("saturn"); api.setSimDays(T + 40); log("t_focus_saturn_motion", { anchor: "saturn" }); }],
+    ];
+    if (new URLSearchParams(location.search).get("moondump") === "1") {
+      const dump: Record<string, string | number> = {};
+      for (const [id, b] of solar.bodies) {
+        if (b.data.type !== "moon") continue;
+        const p = b.group.position;
+        dump[id] = +Math.hypot(p.x, p.y, p.z).toFixed(2);
+        dump[id + "_pr"] = +b.parentRenderRadius.toFixed(3);
+        dump[id + "_range"] = b.moonDistanceRange
+          ? `${b.moonDistanceRange.minKm}-${b.moonDistanceRange.maxKm}`
+          : "null";
+      }
+      console.log("QWMOON", JSON.stringify(dump));
+    }
+    for (const [t, fn] of steps) setTimeout(fn, t);
+  }
+}

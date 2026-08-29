@@ -51,8 +51,16 @@ id 중복/필수 필드, parentId 해석, 행성 거리·공전주기 순서, �
 - **거리(log, 기본)**: `d = 16 + log1p(AU)/log1p(39.6) × (190−16)`
   (min/max는 스펙 §4 권장값, maxAU는 실데이터 최대 a)
 - **거리(linear)**: `d = AU × 4.7` — 안쪽 행성 밀집이 목적(스펙 §4)
-- **거리(focus)**: 선택 행성계 중심 로컬 좌표
-- **위성 거리**: 모행성 Group 로컬, `log1p` 매핑 후 렌더 반지름의 2.5~9배 구간
+- **거리(focus)**: 선택 행성계를 화면 중심으로 두고, 모든 천체를 앵커 기준
+  **실제 오프셋(AU)**으로 배치한 뒤 압축: 오프셋 ≤1.2AU는 준선형
+  (`off × 0.75·26 units/AU`), 그 너머는 `log1p`로 캡(300 units)까지 완만하게
+  압축. 행성·위성 구분 없이 모든 궤도선이 같은 매퍼를 지나므로
+  천체와 궤도가 항상 일치한다(스펙 §4/§13).
+- **위성 거리**: 모행성 Group 로컬 좌표, `log1p` 매핑 후 렌더 반지름의
+  2.5~9배 구간. 매핑 범위는 반장축이 아니라 각 위성의 실제 반지름 스팬
+  `a(1±e)`의 최솟값/최댓값으로 잡는다 — 이심률이 큰 위성이나 단일 위성계(달·
+  트리톤)에서도 9배 밴드를 초과하지 않는다. 행성 선택 시 모계 밴드가
+  2.2배 확장(스펙 §13 디테일 뷰).
 - ** 크기(enhanced, 기본)**: `clamp(0.55 + 0.65·√(R/R⊕), 0.55, 4.0)`, 위성은
   `clamp(0.16 + 0.4·√(R/R⊕), 0.16, 0.75)`, 태양 별도 고정 8
 - **크기(relative)**: 실제 비례 강조 `clamp(0.25 + 0.35·(R/R⊕), 0.25, 6.5)`
@@ -72,8 +80,9 @@ src/
   data/validateSolarSystem.ts  # 데이터 검증 유틸
   core/ScaleManager.ts         # 실데이터→렌더 단위 변환 (3거리·3크기 모드)
   core/SimulationClock.ts      # 배속/재생/정지/리셋
-  core/SolarSystem.ts          # 씬 그래프: 천체·링·별배경·위성 로컬계
-  core/CelestialBody.ts        # Kepler 궤도 운동학
+  core/Kepler.ts               # 케플러 방정식 수치해·궤도면 위치 (순수 함수)
+  core/SolarSystem.ts          # 씬 그래프: 천체·링·별배경·위성 로컬계·전환 보간
+  core/CelestialBody.ts        # Kepler 궤도 운동학·자전·디밍 (공유 지오메트리)
   core/OrbitRenderer.ts        # 궤도선 (init 시 생성, 스케일 변경 시만 갱신)
   ui/ControlPanel.ts           # 제어 HUD
   ui/InfoPanel.ts              # 툴팁 + 인포 (실값/렌더값 분리 표시)
@@ -95,9 +104,20 @@ src/
   `node scripts/overlay-browser-check.mjs` (headless Chrome + CDP, 28 항목).
 - 렌더러 확장(t_a5d73491): `ScaleManager`·`SolarSystem`·`OrbitRenderer`가
   렌더링 계층, `SOLAR_SYSTEM`이 데이터 계층. 두 값을 혼용하지 말 것.
+  모드 전환·시스템 선택은 `SolarSystem.animateScaleChange()`(0.7초 easeInOut
+  보간; 스펙 §13 "interpolate, never snap")를 경유하고, 즉시 재매핑이 필요할
+  때만 `refreshScales(simDays)`를 쓴다. 궤도선은 천체와 동일한 ScaleManager
+  매퍼를 공유하므로 어떤 모드에서도 어긋지 않는다. 디테일 뷰에서는 무관한
+  천체가 15% 불투명으로 디밍된다(`CelestialBody.setDimmed`).
+  지오메트리는 공유 단위 구 1개(모듈 init 시 생성) — `disposeSharedGeometries()`
+  는 `SolarSystem.dispose()`에서만 호출할 것.
 - 커밋 규약: `<type>: <summary> [<kanban-task-id>]`, 태스크 완료 시 1커밋.
 
 ## Known-limitations (이 단계 기준)
 
-- focus 거리 모드는 스케일 전환만 제공하며 행성계 확대 전환 애니메이션은
-  렌더러 태스크(t_a5d73491)에서 완성 예정.
+- focus 거리 모드는 앵커 중심 압축이라 타 행성의 궤도선 형태가 왜곡된다 —
+  천체-궤도 일관성을 우선한 선택(스펙 §4 "local scale centered on the
+  selected planetary system"). 절대 물리 궤도 형태가 필요한 비교는 linear
+  모드를 쓸 것.
+- 디테일 뷰 디밍은 mesh 불투명도에만 적용되고, 무관 천체의 궤도선은 그대로
+  유지된다 — 의도된 디자인.

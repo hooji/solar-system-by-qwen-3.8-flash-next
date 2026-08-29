@@ -26,7 +26,11 @@ export class InfoPanel {
   constructor(
     container: HTMLElement,
     private readonly scale: ScaleManager,
-    private readonly renderOf: (body: CelestialBodyData) => { distance: number; radius: number },
+    private readonly renderOf: (body: CelestialBodyData) => {
+      distance: number;
+      radius: number;
+      fromLabelKo: string;
+    },
   ) {
     this.root = document.createElement("section");
     this.root.className = "panel info-panel";
@@ -69,7 +73,7 @@ export class InfoPanel {
       ["공전 경사", b.inclinationDeg !== undefined ? `${fmt(b.inclinationDeg, 2)}°` : "—"],
       ["── 렌더 값 ──", ""],
       ["렌더 반지름", `${fmt(r.radius, 2)} units`],
-      ["렌더 거리", `${fmt(r.distance, 1)} units`],
+      ["렌더 거리", `${fmt(r.distance, 1)} units · ${r.fromLabelKo}`],
       ["거리 표현", this.scale.distanceModeLabelKo()],
       ["크기 표현", this.scale.sizeModeLabelKo()],
     ];

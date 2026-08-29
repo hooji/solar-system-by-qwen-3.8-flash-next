@@ -12,6 +12,17 @@ import { ellipsePlanePosition } from "./Kepler";
 
 const TWO_PI = Math.PI * 2;
 
+/**
+ * Shared unit sphere — created once at module init and reused by every body
+ * (spec §16). Dispose is owned by SolarSystem.dispose(), NOT by the bodies.
+ */
+const SHARED_SPHERE = new THREE.SphereGeometry(1, 32, 24);
+
+/** Dispose the shared sphere; called from SolarSystem.dispose(). */
+export function disposeSharedGeometries(): void {
+  SHARED_SPHERE.dispose();
+}
+
 export class CelestialBody {
   readonly data: CelestialBodyData;
   /** Scene-graph node for this body (moon systems nest under parent group). */
@@ -19,8 +30,12 @@ export class CelestialBody {
   /** Tilt frame inside the group: carries axialTiltDeg (obliquity, spec §7). */
   readonly tiltGroup: THREE.Group;
   readonly mesh: THREE.Mesh;
+  private readonly material: THREE.MeshStandardMaterial;
+  private readonly baseEmissiveIntensity: number;
 
   renderRadius = 0;
+  /** Detail-view dim state (spec §13): unrelated bodies fade back. */
+  private dimmed = false;
   /**
    * Render radius of the parent body (moons only). Used by
    * ScaleManager.mapSatelliteDistance for the 2.5×–9× rule (spec §5).
@@ -45,15 +60,16 @@ export class CelestialBody {
     this.tiltGroup.rotation.z = THREE.MathUtils.degToRad(data.axialTiltDeg ?? 0);
     this.group.add(this.tiltGroup);
 
-    const geo = new THREE.SphereGeometry(1, 32, 24); // unit sphere; scaled per update
-    const mat = new THREE.MeshStandardMaterial({
+    const geo = SHARED_SPHERE; // reused across all bodies (spec §16)
+    this.material = new THREE.MeshStandardMaterial({
       color: new THREE.Color(data.displayColor),
       roughness: data.render?.emissive ? 0.4 : 0.9,
       metalness: 0,
       emissive: data.render?.emissive ? new THREE.Color(data.displayColor) : new THREE.Color(0x000000),
       emissiveIntensity: data.render?.emissive ? 1.6 : 0,
     });
-    this.mesh = new THREE.Mesh(geo, mat);
+    this.baseEmissiveIntensity = this.material.emissiveIntensity;
+    this.mesh = new THREE.Mesh(geo, this.material);
     this.mesh.name = data.id;
     this.mesh.userData.bodyId = data.id;
     this.tiltGroup.add(this.mesh);
@@ -86,7 +102,14 @@ export class CelestialBody {
     this.applyRadius(scale);
 
     if (d.type === "star") {
-      this.group.position.set(0, 0, 0);
+      if (scale.focusActive && anchor) {
+        // Focus mode: the Sun renders at its compressed REAL offset from the
+        // anchor, so the anchor system is the visual centre (spec §4/§13).
+        scale.mapHeliocentricPlanePoint({ x: 0, y: 0, r: 0 }, anchor, this.planeOut);
+        this.group.position.set(this.planeOut.x, 0, this.planeOut.cz);
+      } else {
+        this.group.position.set(0, 0, 0);
+      }
       this.applySpin(simDays);
       return;
     }
@@ -117,6 +140,23 @@ export class CelestialBody {
     this.mesh.scale.setScalar(this.renderRadius);
   }
 
+  /**
+   * Detail-view dim (spec §13: "dim, simplify, or temporarily hide unrelated
+   * planets"): fade the mesh without touching geometry (cheap, reversible).
+   * Materials start opaque; toggling `transparent` recompiles the shader, so
+   * the flag flips only on state change.
+   */
+  setDimmed(dim: boolean): void {
+    if (this.dimmed === dim) return;
+    this.dimmed = dim;
+    const mat = this.material;
+    mat.transparent = dim;
+    mat.opacity = dim ? 0.15 : 1;
+    mat.emissiveIntensity = dim ? this.baseEmissiveIntensity * 0.15 : this.baseEmissiveIntensity;
+    mat.depthWrite = !dim;
+    mat.needsUpdate = true;
+  }
+
   /** Axial rotation from the REAL period; negative period = retrograde spin. */
   private applySpin(simDays: number): void {
     const rot = this.data.rotationPeriodHours;
@@ -125,7 +165,7 @@ export class CelestialBody {
   }
 
   dispose(): void {
-    this.mesh.geometry.dispose();
-    (this.mesh.material as THREE.Material).dispose();
+    // Geometry is the shared unit sphere — only this body's material is ours.
+    this.material.dispose();
   }
 }

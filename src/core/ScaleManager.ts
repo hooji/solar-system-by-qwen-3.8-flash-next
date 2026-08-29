@@ -100,6 +100,17 @@ export class ScaleManager {
     return this.selectedId !== null && this.selectedId !== "sun";
   }
 
+  /**
+   * One-shot mode switch used by the UI (spec §14) and tests. Focus mode is
+   * always anchored: if nothing is selected, anchor on Earth (a useful
+   * default inner-system view).
+   */
+  setMode(distance: DistanceMode, size: SizeMode): void {
+    this.distanceMode = distance;
+    this.sizeMode = size;
+    if (distance === "focus" && !this.focusAnchorId) this.focusAnchorId = "earth";
+  }
+
   /** Planet whose system is boosted (selected planet, or selected moon's parent). */
   private selectedParentId(): string | null {
     if (!this.selectedId) return null;

@@ -9,6 +9,8 @@ import type { SolarSystem } from "../core/SolarSystem";
 
 export class Labels {
   private visible = true;
+  /** Scratch — no per-frame allocation (spec §16). */
+  private readonly scratch = new THREE.Vector3();
 
   attach(solar: SolarSystem): void {
     for (const body of solar.bodies.values()) {
@@ -40,13 +42,15 @@ export class Labels {
       let show = this.visible;
       if (d.type === "moon") {
         show = show && selectedId !== null && (selectedId === d.parentId || selectedId === d.id);
-      }
-      // distance-based declutter: drop tiny-body labels when far away
-      if (show && d.type === "moon") {
-        const dist = camera.position.distanceTo(body.group.getWorldPosition(new THREE.Vector3()));
-        if (dist > 120) show = false;
+        // distance-based declutter: drop tiny-body labels when far away
+        if (show) {
+          const dist = camera.position.distanceTo(body.group.getWorldPosition(this.scratch));
+          if (dist > 120) show = false;
+        }
       }
       obj.visible = show;
+      // Sit just above the body at its CURRENT render radius (spec §11).
+      obj.position.y = body.renderRadius * 1.15 + 0.4;
     }
   }
 
