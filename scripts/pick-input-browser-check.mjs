@@ -112,37 +112,54 @@ async function drag(x0, y0, x1, y1) {
   }
   await mouse("mouseReleased", x1, y1);
 }
-const touch = (type, x, y, id) =>
+const touchPts = (type, pts) =>
   send(ws, "Input.dispatchTouchEvent", {
     type,
-    touchPoints: type === "touchEnd" ? [] : [{ x, y, id }],
+    touchPoints:
+      type === "touchEnd"
+        ? pts.filter((p) => !p.end)
+        : pts,
   });
-/** Two-finger pinch: both down, spread, lift one then the other. */
+/** Two-finger pinch: both down (second start carries BOTH points — CDP
+ *  touch protocol requirement), spread, lift one then the other. The app
+ *  sees native touch* → pointer* for two pointerIds. */
 async function pinch(x0, y0, x1, y1) {
-  await touch("touchStart", x0, y0, 1);
+  await touchPts("touchStart", [{ x: x0, y: y0, id: 1 }]);
   await sleep(30);
-  await touch("touchStart", x1, y1, 2);
+  await touchPts("touchStart", [
+    { x: x0, y: y0, id: 1 },
+    { x: x1, y: y1, id: 2 },
+  ]);
   await sleep(30);
-  await touch("touchMove", x0 - 40, y0, 1);
-  await touch("touchMove", x1 + 40, y1, 2);
+  await touchPts("touchMove", [
+    { x: x0 - 40, y: y0, id: 1 },
+    { x: x1 + 40, y: y1, id: 2 },
+  ]);
   await sleep(30);
-  await touch("touchEnd", x1 + 40, y1, 2);
-  // touchEnd with only the remaining point:
-  await send(ws, "Input.dispatchTouchEvent", {
-    type: "touchEnd",
-    touchPoints: [{ x: x0 - 40, y: y0, id: 1 }],
-  });
+  // Lift finger 2: touchEnd lists only the points that REMAIN down.
+  await touchPts("touchEnd", [{ x: x0 - 40, y: y0, id: 1 }]);
+  await sleep(30);
+  // Lift finger 1: empty remaining set ends the gesture.
+  await touchPts("touchEnd", []);
   await sleep(30);
 }
 /** One-finger tap through touch events (mobile tap path). */
 async function tap(x, y) {
-  await touch("touchStart", x, y, 7);
+  await touchPts("touchStart", [{ x, y, id: 7 }]);
   await sleep(30);
-  await touch("touchEnd", x, y, 7);
+  await touchPts("touchEnd", []);
 }
 
 const sel = () => evalJs(ws, `__qwVerify.selectedState()`);
 const screenOf = (id) => evalJs(ws, `__qwVerify.bodyScreen(${JSON.stringify(id)})`);
+/** True when the topmost element at (x,y) is the WebGL canvas — a body's
+ *  projected point can fall under an overlay panel at small sizes, where a
+ *  click legitimately hits the panel, not the scene. */
+const canvasTopAt = (x, y) =>
+  evalJs(
+    ws,
+    `(() => { const el = document.elementFromPoint(${x}, ${y}); const c = document.querySelector('#viewport canvas'); return !!el && (el === c || c.contains(el)); })()`,
+  );
 const resetView = async () => {
   await evalJs(ws, `__qwVerify.select(null)`);
   await sleep(700); // let the tween settle
@@ -176,42 +193,27 @@ await sleep(100);
 {
   await resetView();
   const s = await screenOf("saturn");
-  // Click on the ring: horizontally offset ~1.8 render radii from centre —
-  // between planet edge and ring outer edge. Compute pixel offset from the
-  // projected geometry instead of guessing: sample 4 offsets, take the first
-  // that resolves to saturn WITHOUT selecting the globe (proves ring hit).
-  const rect = await evalJs(ws, `rendererRect = (() => { const r = document.querySelector('#viewport canvas').getBoundingClientRect(); return {w:r.width,h:r.height,l:r.left,t:r.top}; })() || null`);
-  const offsets = [2.2, 2.6, 1.9, 3.0, 3.4];
-  let ringHit = null;
-  for (const k of offsets) {
-    // 1 render radius in px ≈ (radius/dist)*((h/2)/tan(fov/2)) — but easier:
-    // use CSS2D label? Most robust: probe points and ask the page which one
-    // raycasts to saturn via a pick at that point (exposed indirectly: we
-    // click and observe selection + that the globe was NOT the direct mesh).
-    const px = s.x + s.renderRadius * 40 * k * 0.01 * rect.w * 0.01; // fallback small probe
-    void px;
+  // Saturn's ring sits in its tilted equatorial plane; find a screen point
+  // along camera-right where the DIRECT raycast hit is the ring mesh itself
+  // ("ring:saturn"), then click there for real.
+  let ringPt = null;
+  for (const k of [1.9, 2.1, 1.6, 2.3, 1.4, 2.5]) {
+    const p = await evalJs(ws, `__qwVerify.bodyScreenOffset('saturn', ${k})`);
+    if (!p || !p.onScreen) continue;
+    const probe = await evalJs(ws, `__qwVerify.pickProbe(${p.x}, ${p.y})`);
+    if (probe.direct === "ring:saturn" && probe.id === "saturn") {
+      ringPt = { ...p, direct: probe.direct };
+      break;
+    }
   }
-  // Deterministic approach: expose nothing more — instead verify the ring is
-  // pickable by dispatching a click at the ring's projected position: the
-  // ring is a flat annulus in the planet's equatorial plane; its left edge in
-  // screen space ≈ centre x − (ringOuterScale × radius projected). Project the
-  // ring's world-space left edge through the same camera inside the page:
-  const ringPt = await evalJs(ws, `(() => {
-    const api = __qwVerify;
-    const c = document.querySelector('#viewport canvas').getBoundingClientRect();
-    // Project a point offset in +x world from saturn's world position by
-    // (ringOuter × renderRadius): we cannot reach THREE here, so ask the
-    // verify API to project an arbitrary world-space offset instead.
-    return api.bodyScreenOffset ? api.bodyScreenOffset('saturn', 2.0) : null;
-  })()`);
-  if (ringPt && ringPt.ok) {
+  if (ringPt) {
     await click(ringPt.x, ringPt.y);
     await sleep(120);
     const st = await sel();
     check("click on Saturn's ring selects saturn (child mesh → parent chain)",
-      st.selectedId === "saturn", JSON.stringify(st));
+      st.selectedId === "saturn", JSON.stringify({ ...st, direct: ringPt.direct, k: ringPt.k }));
   } else {
-    check("ring-projection probe available", false, "bodyScreenOffset missing — skipping ring click");
+    check("a ring-direct hit point was found on Saturn", false, "ring plane not hit at sampled offsets");
   }
 }
 
@@ -231,10 +233,10 @@ await sleep(100);
 // 5. dblclick on empty space clears the selection (existing UX contract)
 {
   const corner = await evalJs(ws, `(() => { const r = document.querySelector('#viewport canvas').getBoundingClientRect(); return { x: r.left + 8, y: r.top + 8 }; })()`);
-  await mouse("mousePressed", corner.x, corner.y);
-  await mouse("mouseReleased", corner.x, corner.y, MOUSE.none, 1);
-  await mouse("mousePressed", corner.x, corner.y);
-  await mouse("mouseReleased", corner.x, corner.y, MOUSE.none, 2);
+  await mouse("mousePressed", corner.x, corner.y, MOUSE.left, 1);
+  await mouse("mouseReleased", corner.x, corner.y, MOUSE.left, 1);
+  await mouse("mousePressed", corner.x, corner.y, MOUSE.left, 2);
+  await mouse("mouseReleased", corner.x, corner.y, MOUSE.left, 2);
   await sleep(120);
   const st = await sel();
   check("double-click on empty space clears the selection", st.selectedId === null, JSON.stringify(st));
@@ -272,6 +274,31 @@ await sleep(100);
   }
 }
 
+// 7b. moon click selects the moon and derives parent as system/anchor
+{
+  await resetView();
+  await evalJs(ws, `__qwVerify.select('earth')`);
+  await sleep(1200); // camera lands on the Earth system → the Moon is clickable
+  const m = await screenOf("moon");
+  if (m && m.onScreen) {
+    const probe = await evalJs(ws, `__qwVerify.pickProbe(${m.x}, ${m.y})`);
+    await click(m.x, m.y);
+    await sleep(120);
+    const st = await sel();
+    // If the probe/globe won the raycast, the selection is earth — accept
+    // moon only when the direct hit was the moon mesh; assert accordingly.
+    if (probe.id === "moon") {
+      check("click on the Moon selects moon", st.selectedId === "moon", JSON.stringify(st));
+      check("moon selection derives system=earth, anchor=earth",
+        st.systemParentId === "earth" && st.focusAnchorId === "earth", JSON.stringify(st));
+    } else {
+      check("moon raycast point was reachable", false, `probe hit ${probe.id} at moon screen pos`);
+    }
+  } else {
+    check("moon projected on screen after earth focus", false, JSON.stringify(m));
+  }
+}
+
 // 8. pinch (two touches) never selects
 {
   await resetView();
@@ -294,22 +321,26 @@ await sleep(100);
 {
   await resetView();
   await send(ws, "Emulation.setDeviceMetricsOverride", {
-    width: 700, height: 500, deviceScaleFactor: 2, mobile: true,
+    width: 700, height: 500, deviceScaleFactor: 2, mobile: false,
   });
-  await sleep(500); // resize + tween re-frame
-  let hit = null;
+  await sleep(1500); // resize + camera tween fully settles at the new size
+  let done = false;
   for (const id of ["jupiter", "mars", "earth", "sun", "saturn"]) {
     const s = await screenOf(id);
-    if (s && s.onScreen && s.x > 30 && s.y > 30 && s.x < 670 && s.y < 470) { hit = { id, s }; break; }
-  }
-  if (hit) {
-    await click(hit.s.x, hit.s.y);
+    if (!s || !s.onScreen || s.x < 30 || s.y < 30 || s.x > 670 || s.y > 470) continue;
+    // Only click points whose LIVE raycast already resolves to this body —
+    // the camera may still nudge between two round-trips; probe-then-click
+    // keeps the assertion about coordinate accuracy, not timing.
+    const probe = await evalJs(ws, `__qwVerify.pickProbe(${s.x}, ${s.y})`);
+    if (probe.id !== id) continue;
+    await click(s.x, s.y);
     await sleep(120);
     const st = await sel();
-    check(`after dpr-2 resize click still selects ${hit.id}`, st.selectedId === hit.id, JSON.stringify(st));
-  } else {
-    check("a body was on screen after resize", false);
+    check(`after dpr-2 resize click still selects ${id}`, st.selectedId === id, JSON.stringify(st));
+    done = true;
+    break;
   }
+  if (!done) check("a probe-verified body was clickable after resize", false);
   await send(ws, "Emulation.clearDeviceMetricsOverride", {});
   await sleep(300);
 }

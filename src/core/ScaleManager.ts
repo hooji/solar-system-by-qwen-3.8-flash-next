@@ -101,11 +101,6 @@ export class ScaleManager {
     return this.selectedId !== null && this.selectedId !== "sun";
   }
 
-  /** Extra outer-ring scale for the selected system's moons (spec §13). */
-  get systemMoonBoostFactor(): number {
-    return this.cfg.systemMoonBoost;
-  }
-
   /**
    * One-shot mode switch used by the UI (spec §14) and tests. Focus mode is
    * always anchored: if nothing is selected, anchor on Earth (a useful

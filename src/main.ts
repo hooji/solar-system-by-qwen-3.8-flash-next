@@ -278,16 +278,25 @@ function selectBody(id: string): void {
  */
 const tapGesture = new TapGestureTracker();
 
+/** Pointer-flow counters for the browser check (t_06891a0f): how many
+ *  pointerdown/up actually reached the canvas vs how many became taps. */
+const diag = { downs: 0, ups: 0, taps: 0, cancels: 0, lastTapPick: null as string | null };
+
 const onPointerDown = (ev: PointerEvent): void => {
+  diag.downs++;
   tapGesture.down(ev.pointerId, ev.clientX, ev.clientY);
 };
 const onPointerUp = (ev: PointerEvent): void => {
+  diag.ups++;
   const tap = tapGesture.up(ev.pointerId, ev.clientX, ev.clientY);
   if (!tap) return; // drag / pinch member / stray up — leave OrbitControls' work alone
+  diag.taps++;
   const id = pickAt(tap.x, tap.y);
+  diag.lastTapPick = id;
   if (id) selectBody(id); // empty space → no selection change, never an error
 };
 const onPointerCancel = (ev: PointerEvent): void => {
+  diag.cancels++;
   tapGesture.cancel(ev.pointerId);
 };
 const onDoubleClick = (ev: MouseEvent): void => {
@@ -626,6 +635,31 @@ if (import.meta.env.VITE_VERIFY === "1") {
     /** Selection state of record (raycast/programmatic — whatever happened),
      *  derived through the ONE contract (core/bodyIdentity.selectionFor). */
     selectedState: () => selectionFor(selectedId),
+    /** Pointer-flow counters (browser-check diagnostics, t_06891a0f). */
+    pointerDiag: () => ({ ...diag }),
+    /**
+     * Run the pick math at a viewport point WITHOUT any selection side
+     * effect (t_06891a0f browser check): resolves the id via the same
+     * parent-chain walk and also reports the DIRECT hit mesh name so the
+     * ring-mesh→planet child rule can be proven, not just inferred.
+     */
+    pickProbe(x: number, y: number) {
+      const ndc = ndcFromClientPoint(
+        x,
+        y,
+        renderer.domElement.getBoundingClientRect(),
+      );
+      if (!ndc) return { id: null, direct: null, hits: 0 };
+      const p = new THREE.Vector2(ndc.x, ndc.y);
+      const probe = new THREE.Raycaster();
+      probe.setFromCamera(p, camera);
+      const hits = probe.intersectObjects(solar.pickTargets(), true);
+      for (const h of hits) {
+        const id = resolveBodyIdFromObject(h.object as unknown as PickableNode);
+        if (id) return { id, direct: h.object.name || null, hits: hits.length };
+      }
+      return { id: null, direct: null, hits: hits.length };
+    },
     /** Screen point (CSS px, page space) k × render-radius to the CAMERA-RIGHT
      *  of a body's centre — same depth, so ≈ k render radii on screen. Lets
      *  picking checks hit e.g. Saturn's ring annulus (1 < k < ringOuterScale)
