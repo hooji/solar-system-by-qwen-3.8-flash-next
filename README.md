@@ -83,6 +83,7 @@ src/
   core/Kepler.ts               # 케플러 방정식 수치해·궤도면 위치 (순수 함수)
   core/simMath.ts              # 자전각·경사도 매핑 순수 함수 (three/DOM 의존 없음)
   core/SolarSystem.ts          # 씬 그래프: 천체·링·별배경·위성 로컬계·전환 보간
+  core/CameraTween.ts          # 카메라 포커스: 거리 매핑 + live-추적 ease-in-out 트윈 (pure)
   core/CelestialBody.ts        # Kepler 궤도 운동학·자전·디밍 (공유 지오메트리)
   core/OrbitRenderer.ts        # 궤도선 (init 시 생성, 스케일 변경 시만 갱신)
   ui/ControlPanel.ts           # 제어 HUD
@@ -147,6 +148,21 @@ src/
   (`__qwVerify.select(id)`도 동일 경유). 검증:
   `node scripts/info-panel-browser-check.mjs` (headless Chrome CDP, 행성·
   위성과 선택·레이블 동기화·복구·420px까지).
+- 카메라 포커스(t_31402ac4): 초점 경로 하나 — `main.reframeCamera()`가
+  `selectionFor`로 파생된 선택 상태를 적용한 **뒤**에 `focusFrameFor(id)`로
+  렌더 단위 입력(원래/부스팅 반지름 분리, parent-local 위성의 모계 렌더 링
+  범위, 링 outer 반지름)을 만들어 `core/CameraTween.cameraFocusDistance()`에
+  전달한다. 카메라와 focus 거리 스케일 매핑이 같은 숫자를 읽으므로 서로
+  어긋날 수 없고, 거리 모드 전환·리셋도 같은 경유(`onDistanceMode`/
+  `__qwVerify.setDistanceMode` → `reframeCamera`). 비행은 `CameraTween`이
+  소유: 현재 카메라 상태(controls.target/camera.position)에서 시작해 시선
+  방향을 유지하고, 매 스텝 `follow(out)`으로 천체의 **현재** 월드 위치를
+  다시 읽어(sim 시간 병주 추적) 종료 스텝에서 target ≡ 월드 위치, 카메라는
+  그로부터 정확히 mapping 거리. 도중 재선택은 `start()` 재호출로 이전 구간의
+  적용이 중단되는 안전 취소, 완료 후 `update()`는 콜백도 부르지 않는 불능
+  상태(dispose 안전), follow가 NaN을 주면 그 스텝을 건너뛴다. 검증:
+  `node scripts/camera-focus.test.mjs` (14 항목, 순수), autotest의
+  `t_cam_*` 태그(정지·moving target·위성 io·연속 재선택·focus 모드·전역 복귀).
 - 커밋 규약: `<type>: <summary> [<kanban-task-id>]`, 태스크 완료 시 1커밋.
 
 ## Known-limitations (이 단계 기준)
