@@ -182,6 +182,17 @@ src/
   실제 입력 16 항목: 행성·링 자식·위성 moon→earth 파생·빈 공간·더블클릭·
   드래그와 OrbitControls 병존·터치 탭·핀치 실격·dpr-2 리사이즈·애니메이션
   중 재선택·teardown, 콘솔 에러 0).
+- 통합 teardown·리스너 회계(t_92052608): `teardownAll()`(beforeunload 및
+  `__qwTeardownAll()`)이 rAF 루프(cancel 후 미재무장), canvas 픽처 5개 +
+  OrbitControls 내부 리스너(`controls.dispose()`), window resize/beforeunload,
+  오버레이, 씬 리소스를 한 번에 해제하고 중복 호출은 무해(idempotent).
+  `VITE_VERIFY=1` 빌드에서는 `EventTarget.prototype` 회계 훅이 (target,
+  이벤트)별 live 수를 세어(오버-리무브는 0에서 포화 — OrbitControls의
+  add/remove churn 대응) 마운트 중에는 전부 live, teardown 후에는 전부
+  0임을 증명. 프로덕션 빌드에는 dead code로 빠진다. 검증:
+  `node scripts/integration-browser-check.mjs` (CDP 14 항목: 루프 정지,
+  리스너 전량 해제, teardown 후 canvas 무반응, 리마운트 후 1회 재등록·
+  선택 재작동, dpr-2 리사이즈 클릭, 콘솔 에러 0).
 - 커밋 규약: `<type>: <summary> [<kanban-task-id>]`, 태스크 완료 시 1커밋.
 
 ## Known-limitations (이 단계 기준)

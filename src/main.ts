@@ -33,6 +33,37 @@ import { Labels } from "./ui/Labels";
 import { OverlayManager } from "./ui/OverlayManager";
 import { BODY_SELECTED_EVENT } from "./ui/overlayState";
 
+// Listener accounting (integration t_92052608, VITE_VERIFY builds ONLY —
+// dead code in dev/prod): counts add/remove per (target-kind, event-type) and
+// maintains a SATURATING live counter (extra removeEventListener calls for
+// handlers that are already gone — OrbitControls does this on dispose — must
+// not push the live count negative). The browser check asserts the app-owned
+// keys are fully live while mounted and back to zero after teardown, proving
+// nothing accumulates across a dispose/remount cycle. MUST be installed
+// before ANY listener is registered, hence its position right after imports.
+if (import.meta.env.VITE_VERIFY === "1") {
+  const stats: Record<string, { added: number; removed: number; live: number }> = {};
+  const key = (t: EventTarget, ty: string) =>
+    `${t instanceof Window ? "window" : t instanceof Document ? "document" : t instanceof HTMLElement ? "element" : "other"}:${ty}`;
+  const proto = EventTarget.prototype;
+  const origAdd = proto.addEventListener;
+  const origRem = proto.removeEventListener;
+  proto.addEventListener = function (this: EventTarget, type: string, ...rest: unknown[]) {
+    const s = (stats[key(this, type)] ??= { added: 0, removed: 0, live: 0 });
+    s.added++;
+    s.live++;
+    return origAdd.call(this, type as string, ...(rest as [never, AddEventListenerOptions | boolean | undefined]));
+  } as typeof origAdd;
+  proto.removeEventListener = function (this: EventTarget, type: string, ...rest: unknown[]) {
+    const s = (stats[key(this, type)] ??= { added: 0, removed: 0, live: 0 });
+    s.removed++;
+    s.live = Math.max(0, s.live - 1);
+    return origRem.call(this, type as string, ...(rest as [never, EventListenerOptions | boolean | undefined]));
+  } as typeof origRem;
+  (window as unknown as { __qwListenerStats?: () => Record<string, { added: number; removed: number; live: number }> }).__qwListenerStats =
+    () => JSON.parse(JSON.stringify(stats));
+}
+
 // --- data sanity in dev (spec §15; silent in prod) --------------------------
 const issues = validateSolarSystem();
 const fatal = issues.filter((i) => i.severity === "error");
@@ -279,8 +310,17 @@ function selectBody(id: string): void {
 const tapGesture = new TapGestureTracker();
 
 /** Pointer-flow counters for the browser check (t_06891a0f): how many
- *  pointerdown/up actually reached the canvas vs how many became taps. */
-const diag = { downs: 0, ups: 0, taps: 0, cancels: 0, lastTapPick: null as string | null };
+ *  pointerdown/up actually reached the canvas vs how many became taps.
+ *  `frames` (t_92052608) lets the integration check prove the rAF loop stops
+ *  after teardown: it must stop growing once __qwTeardownAll() is called. */
+const diag = {
+  downs: 0,
+  ups: 0,
+  taps: 0,
+  cancels: 0,
+  frames: 0,
+  lastTapPick: null as string | null,
+};
 
 const onPointerDown = (ev: PointerEvent): void => {
   diag.downs++;
@@ -390,12 +430,30 @@ function onResize(): void {
   labelRenderer.setSize(window.innerWidth, window.innerHeight);
 }
 window.addEventListener("resize", onResize);
-const onTeardown = (): void => {
+
+// The frame loop owns ONE rAF chain: frame() re-schedules itself, so a single
+// cancelAnimationFrame on the pending handle stops the loop completely —
+// nothing re-schedules after teardown (integration t_92052608).
+let rafId = 0;
+
+/**
+ * FULL runtime teardown (integration t_92052608): every listener this module
+ * added, OrbitControls' own canvas listeners, and the animation frame chain
+ * all go away together, so nothing accumulates across a dispose/remount
+ * cycle. Idempotent — a second call is a no-op.
+ */
+function teardownAll(): void {
+  cancelAnimationFrame(rafId); // stops the loop: frame() will not re-arm
   teardownPicking(); // canvas pointer listeners go with the scene (t_06891a0f)
+  controls.dispose(); // OrbitControls' pointer/wheel listeners on the canvas
   window.removeEventListener("resize", onResize);
+  window.removeEventListener("beforeunload", onTeardown);
   overlay.dispose();
   solar.dispose();
   renderer.dispose();
+}
+const onTeardown = (): void => {
+  teardownAll();
 };
 window.addEventListener("beforeunload", onTeardown);
 // Test/verification hook: removes ONLY the picking listeners added by this
@@ -403,6 +461,10 @@ window.addEventListener("beforeunload", onTeardown);
 // canvas is inert to clicks/taps; scene resources are untouched.
 (window as unknown as { __qwTeardownPicking?: () => void }).__qwTeardownPicking =
   teardownPicking;
+// Test/verification hook: FULL teardown — listeners + rAF loop + resources.
+// Used by the integration check to prove nothing accumulates after dispose.
+(window as unknown as { __qwTeardownAll?: () => void }).__qwTeardownAll =
+  teardownAll;
 
 // --- initial layout + loop ---------------------------------------------------
 solar.refreshScales(0);
@@ -419,9 +481,8 @@ function formatSimDate(): string {
 
 let lastHud = 0;
 function frame(realMs: number): void {
-  requestAnimationFrame(frame);
-
-// --- optional interaction-free test API (verification builds only) ----------
+  rafId = requestAnimationFrame(frame);
+  diag.frames++;
 // Enabled with `npm run dev -- --mode verify` (or VITE_VERIFY=1); never
 // active in a normal dev/prod run, so the shipped demo stays clean.
 if (import.meta.env.VITE_VERIFY === "1") {
