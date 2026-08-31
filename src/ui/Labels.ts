@@ -6,6 +6,7 @@
 import * as THREE from "three";
 import { CSS2DObject } from "three/addons/renderers/CSS2DRenderer.js";
 import type { SolarSystem } from "../core/SolarSystem";
+import { selectionFor } from "../core/bodyIdentity";
 
 export class Labels {
   private visible = true;
@@ -35,13 +36,16 @@ export class Labels {
 
   /** Hide moon labels in global view; show them when parent selected. */
   update(solar: SolarSystem, selectedId: string | null, camera: THREE.Camera): void {
+    // Shared selection contract (core/bodyIdentity.ts): the revealed system
+    // is derived once, not re-inferred from raw ids here.
+    const { systemParentId } = selectionFor(selectedId);
     for (const [id, obj] of solar.labelObjects) {
       const body = solar.bodies.get(id);
       if (!body) continue;
       const d = body.data;
       let show = this.visible;
       if (d.type === "moon") {
-        show = show && selectedId !== null && (selectedId === d.parentId || selectedId === d.id);
+        show = show && selectedId !== null && (d.parentId === systemParentId || d.id === selectedId);
         // distance-based declutter: drop tiny-body labels when far away
         if (show) {
           const dist = camera.position.distanceTo(body.group.getWorldPosition(this.scratch));

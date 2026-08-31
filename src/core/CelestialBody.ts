@@ -53,6 +53,10 @@ export class CelestialBody {
     this.phaseRad = bodyPhaseRad(index);
     this.group = new THREE.Group();
     this.group.name = data.id;
+    // Identification contract (core/bodyIdentity.ts): EVERY node of this
+    // body's subtree resolves to `data.id` via the userData walk, so a click
+    // on any descendant (mesh, ring, future geometry) maps to the real body.
+    this.group.userData.bodyId = data.id;
 
     this.tiltGroup = new THREE.Group();
     this.tiltGroup.name = `tilt:${data.id}`;

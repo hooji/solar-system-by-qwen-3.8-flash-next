@@ -9,11 +9,13 @@ import * as THREE from "three";
 import { CSS2DObject } from "three/addons/renderers/CSS2DRenderer.js";
 import {
   SOLAR_SYSTEM,
+  getBodyById,
   getChildrenOf,
   type CelestialBodyData,
 } from "../data/solarSystemData";
 import { CelestialBody, disposeSharedGeometries } from "./CelestialBody";
 import { OrbitRenderer } from "./OrbitRenderer";
+import { systemParentOf } from "./bodyIdentity";
 import type { ScaleManager } from "./ScaleManager";
 
 /** Seconds over which scale-mode / system changes are interpolated. */
@@ -81,6 +83,8 @@ export class SolarSystem {
 
   private starField: THREE.Points | null = null;
   private readonly disposables: { dispose(): void }[] = [];
+  /** Ring meshes — extra raycast pick targets (userData.bodyId = planet id). */
+  private readonly ringMeshes: THREE.Mesh[] = [];
 
   /** Smooth scale-change state (spec §13): blend prev→cur render positions. */
   private transitionT = 1;
@@ -121,7 +125,10 @@ export class SolarSystem {
       // Saturn (mandatory) / Uranus (thin, spec §12) rings.
       if (data.render?.hasRings) {
         const ring = this.makeRing(data);
-        if (ring) body.tiltGroup.add(ring);
+        if (ring) {
+          body.tiltGroup.add(ring);
+          this.ringMeshes.push(ring);
+        }
       }
 
       // Moons live under the parent's group → whole system travels with it.
@@ -198,6 +205,8 @@ export class SolarSystem {
     const mesh = new THREE.Mesh(geo, mat);
     mesh.rotation.x = Math.PI / 2; // lies in the planet's equatorial (XZ) plane
     mesh.name = `ring:${data.id}`;
+    // Ring clicks resolve to the owning planet (bodyIdentity parent-chain rule).
+    mesh.userData.bodyId = data.id;
     this.disposables.push(geo, mat, tex);
     return mesh;
   }
@@ -275,12 +284,12 @@ export class SolarSystem {
    * the global view.
    */
   setSystemRevealed(selectedId: string | null): void {
-    const parentSel =
-      selectedId && selectedId !== "sun"
-        ? (this.bodies.get(selectedId)?.data.type === "moon"
-            ? this.bodies.get(selectedId)?.data.parentId ?? null
-            : selectedId)
-        : null;
+    // Moon → parent, planet → itself, star/none → null: the SAME rule the
+    // camera-focus layer uses (core/bodyIdentity.ts, task t_766b495f).
+    const data = selectedId
+      ? (this.bodies.get(selectedId)?.data ?? getBodyById(selectedId))
+      : undefined;
+    const parentSel = data ? systemParentOf(data) : null;
     for (const [id, orbit] of this.orbits) {
       const d = this.bodies.get(id)?.data;
       if (!d) continue;
@@ -386,9 +395,14 @@ export class SolarSystem {
     for (const o of this.orbits.values()) o.setVisible(visible);
   }
 
-  /** Pick targets for the raycaster. */
+  /**
+   * Pick targets for the raycaster: every body mesh PLUS ring meshes (rings
+   * hang under the tiltGroup, not the mesh, so they'd be unreachable
+   * otherwise). Every target carries userData.bodyId (rings: the owning
+   * planet), so resolveBodyIdFromObject maps any hit to the real body root.
+   */
   pickTargets(): THREE.Object3D[] {
-    return [...this.bodies.values()].map((b) => b.mesh);
+    return [...this.bodies.values()].map((b) => b.mesh).concat(this.ringMeshes);
   }
 
   dispose(): void {

@@ -94,6 +94,18 @@ src/
 
 ## 후속 작업자를 위한 계약
 
+- 천체 식별·선택 상태(t_766b495f): `core/bodyIdentity.ts`가 유일한 식별/상태
+  계약. 천체 ID는 `CelestialBodyData.id`(부모는 `parentId`)이고, 씬 노드는
+  `userData.bodyId`(mesh·group·링 모두)로만 자신을 advertised한다 —
+  `name`("tilt:<id>" 등)은 장식용이니 절대 파싱하지 말 것. Mesh 자식(링 등)
+  클릭 해석은 `resolveBodyIdFromObject(node)`: 부모 체인을 거치며 데이터셋에
+  실재하는 첫 `userData.bodyId`를 채택, 없으면 null(빈 공간 — 예외 없음).
+  선택 상태 전체(선택 ID/디테일 뷰 시스템 부모/focus 앵커)는 `selectionFor(id)`
+  한 번의 파생으로 얻는다(위성 → parent, 항성 → null). Raycast 재귀 타깃은
+  `SolarSystem.pickTargets()`(mesh+링), 좌표는 `getBoundingClientRect()` 기준
+  NDC — dpr 무관, 창 크기 변경 후에도 정확. 위성의 `group.position`은
+  parent-local(`coordFrameOf`)이므로 씬 비교는 반드시 `getWorldPosition()`.
+  검증: `node scripts/body-identity.test.mjs` (14 항목, 순수).
 - 오버레이 패널 토글(t_30700e13): `ui/overlayState.ts`(순수 상태·localStorage)와
   `ui/OverlayManager.ts`(DOM·dock·H 단축키·ARIA)가 계층 전체. `.panel`을
   `overlay.register(id, el)`로 등록하면 개별 접기 버튼이 주입된다.

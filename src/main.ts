@@ -13,6 +13,12 @@ import { validateSolarSystem, formatIssues } from "./data/validateSolarSystem";
 import { ScaleManager } from "./core/ScaleManager";
 import { SimulationClock } from "./core/SimulationClock";
 import { SolarSystem } from "./core/SolarSystem";
+import {
+  resolveBodyIdFromObject,
+  selectionFor,
+  systemParentOf,
+  type PickableNode,
+} from "./core/bodyIdentity";
 import { InfoPanel } from "./ui/InfoPanel";
 import { ControlPanel } from "./ui/ControlPanel";
 import { Labels } from "./ui/Labels";
@@ -121,14 +127,14 @@ function easeInOut(t: number): number {
 }
 
 function focusOn(id: string | null): void {
-  selectedId = id;
-  scale.selectedId = id;
-  // Focus distance mode anchors on the selected planet/dwarf (spec §4/§13);
-  // selecting a moon anchors on its parent so the whole system stays centred.
-  const sel = id ? getBodyById(id) : undefined;
-  const anchorId = sel && sel.type !== "star" ? (sel.type === "moon" ? sel.parentId ?? sel.id : sel.id) : null;
-  scale.focusAnchorId = anchorId;
-  solar.setSystemRevealed(id);
+  // ONE derivation for the whole selection state (task t_766b495f contract):
+  // focusAnchorId (moon → parent, star → null) and systemParentId come from
+  // core/bodyIdentity.ts — camera focus and scale focus can never disagree.
+  const sel = selectionFor(id);
+  selectedId = sel.selectedId;
+  scale.selectedId = sel.selectedId;
+  scale.focusAnchorId = sel.focusAnchorId;
+  solar.setSystemRevealed(sel.selectedId);
   solar.animateScaleChange();
   for (const [bid, orbit] of solar.orbits) {
     orbit.setHighlighted(bid === id);
@@ -142,7 +148,7 @@ function focusOn(id: string | null): void {
     if (!body) return;
     body.group.getWorldPosition(worldTarget);
     dist = Math.max(body.renderRadius * 6, 6);
-    const systemKey = body.data.type === "moon" ? body.data.parentId : body.data.id;
+    const systemKey = systemParentOf(body.data);
     if (systemKey) {
       const maxR = Math.max(
         1,
@@ -167,16 +173,26 @@ const raycaster = new THREE.Raycaster();
 const pointer = new THREE.Vector2();
 
 function pick(ev: { clientX: number; clientY: number }): string | null {
-  pointer.x = (ev.clientX / window.innerWidth) * 2 - 1;
-  pointer.y = -(ev.clientY / window.innerHeight) * 2 + 1;
+  // Viewport-relative normalized coords (renderer fills #viewport, which is
+  // full-window fixed — see styles.css). devicePixelRatio is irrelevant here:
+  // NDC is CSS-pixel based, so dpr changes need no adjustment (spec §10).
+  const rect = renderer.domElement.getBoundingClientRect();
+  pointer.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
+  pointer.y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
   raycaster.setFromCamera(pointer, camera);
-  const hits = raycaster.intersectObjects(solar.pickTargets(), false);
+  // recursive=true: clicks on a body's children (ring mesh, tilt-frame
+  // descendants, any future decoration) must resolve too — the parent-chain
+  // walk in resolveBodyIdFromObject maps them to the owning body root.
+  const hits = raycaster.intersectObjects(solar.pickTargets(), true);
   for (const h of hits) {
-    const id = h.object.userData.bodyId;
-    if (typeof id === "string") return id;
+    const id = resolveBodyIdFromObject(h.object as unknown as PickableNode);
+    if (id) return id;
   }
   return null;
 }
+
+/** Drag threshold (CSS px): above this an orbit drag is never a tap-select. */
+const TAP_MOVE_TOLERANCE_PX = 6;
 
 /**
  * Single call site for body selection (spec: overlay task event contract).
@@ -200,7 +216,9 @@ renderer.domElement.addEventListener("pointerdown", (ev) => {
   downY = ev.clientY;
 });
 renderer.domElement.addEventListener("pointerup", (ev) => {
-  if (Math.hypot(ev.clientX - downX, ev.clientY - downY) > 6) return; // drag, not click
+  // Pointer events cover mouse AND touch: a drag that moved OrbitControls
+  // past the tolerance is never re-interpreted as a tap-select (spec §10).
+  if (Math.hypot(ev.clientX - downX, ev.clientY - downY) > TAP_MOVE_TOLERANCE_PX) return;
   const id = pick(ev);
   if (id) selectBody(id);
 });

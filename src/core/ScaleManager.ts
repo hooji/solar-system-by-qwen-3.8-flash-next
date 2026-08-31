@@ -22,6 +22,7 @@ import {
   type CelestialBodyData,
 } from "../data/solarSystemData";
 import { ellipsePlanePosition } from "./Kepler";
+import { systemParentOf } from "./bodyIdentity";
 
 export type DistanceMode = "log" | "linear" | "focus";
 export type SizeMode = "enhanced" | "relative" | "uniform";
@@ -111,12 +112,11 @@ export class ScaleManager {
     if (distance === "focus" && !this.focusAnchorId) this.focusAnchorId = "earth";
   }
 
-  /** Planet whose system is boosted (selected planet, or selected moon's parent). */
+  /** Planet whose system is boosted — shared rule in core/bodyIdentity.ts. */
   private selectedParentId(): string | null {
     if (!this.selectedId) return null;
     const sel = getBodyById(this.selectedId);
-    if (!sel) return null;
-    return sel.type === "moon" ? (sel.parentId ?? null) : sel.type === "star" ? null : sel.id;
+    return sel ? systemParentOf(sel) : null;
   }
 
   /**
