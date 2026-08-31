@@ -163,6 +163,25 @@ src/
   상태(dispose 안전), follow가 NaN을 주면 그 스텝을 건너뛴다. 검증:
   `node scripts/camera-focus.test.mjs` (14 항목, 순수), autotest의
   `t_cam_*` 태그(정지·moving target·위성 io·연속 재선택·focus 모드·전역 복귀).
+- Raycaster 선택·포인터 생명주기(t_06891a0f): 입력 판정은 두 순수 모듈이
+  전부 — `core/pickCoords.ndcFromClientPoint(x, y, rect)`는 클릭 지점을
+  `getBoundingClientRect()` 기준 NDC로 변환(dpr 무관, 매 픽처 새 rect라
+  창 크기·회전 후에도 정확, 0크기 rect는 예외 대신 null). tap-vs-drag 판정은
+  `core/pointerGesture.TapGestureTracker`(순수): pointerdown/up 좌표로
+  `TAP_MOVE_TOLERANCE_PX`(6px, 경계 포함) 이내 정지 탭만 허용, 두 번째
+  포인터가 끼는 순간 제스처 전체가 실격(핀치 중 손가락을 하나씩 들어도 선택
+  없음), 전부 해제될 때만 실격 초기화, pointercancel은 유령 down을 남기지
+  않는다. `main.ts`는 canvas에 pointerdown/up/cancel+dblclick+pointermove를
+  1회 등록하고 전부 named handler — `teardownPicking()`/`__qwTeardownPicking()`
+  이 전역 teardown과 separately 제거 가능(중복 등록 없음). hover raycast는
+  포인터가 내려간 동안(OrbitControls 드래그 중) 스킵. pick nearest-valid는
+  `pickAt`가 `pickTargets()` 재귀 정렬 결과에서 `resolveBodyIdFromObject`로
+  첫 유효 id를 채택(링 자식 → 행성), 빈 공간은 선택 유지·예외 없음, 빈 공간
+  더블클릭만 선택 해제(기존 UX). 검증: `node scripts/pick-input.test.mjs`
+  (18 항목, 순수) + `node scripts/pick-input-browser-check.mjs` (CDP
+  실제 입력 16 항목: 행성·링 자식·위성 moon→earth 파생·빈 공간·더블클릭·
+  드래그와 OrbitControls 병존·터치 탭·핀치 실격·dpr-2 리사이즈·애니메이션
+  중 재선택·teardown, 콘솔 에러 0).
 - 커밋 규약: `<type>: <summary> [<kanban-task-id>]`, 태스크 완료 시 1커밋.
 
 ## Known-limitations (이 단계 기준)

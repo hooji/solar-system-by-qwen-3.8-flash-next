@@ -637,6 +637,8 @@ if (import.meta.env.VITE_VERIFY === "1") {
     selectedState: () => selectionFor(selectedId),
     /** Pointer-flow counters (browser-check diagnostics, t_06891a0f). */
     pointerDiag: () => ({ ...diag }),
+    /** Pointer-flow counters (browser-check diagnostics, t_06891a0f). */
+    pointerDiag: () => ({ ...diag }),
     /**
      * Run the pick math at a viewport point WITHOUT any selection side
      * effect (t_06891a0f browser check): resolves the id via the same

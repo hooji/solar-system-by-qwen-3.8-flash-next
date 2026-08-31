@@ -120,9 +120,10 @@ const touchPts = (type, pts) =>
         ? pts.filter((p) => !p.end)
         : pts,
   });
-/** Two-finger pinch: both down (second start carries BOTH points — CDP
- *  touch protocol requirement), spread, lift one then the other. The app
- *  sees native touch* → pointer* for two pointerIds. */
+/** Two-finger pinch: touchPoints is the FULL new active set — CDP diffs it
+ *  against the previous event to press/move/release one point at a time
+ *  (omitting a still-down finger is rejected). The app sees native touch* →
+ *  pointer* transitions for two pointerIds. */
 async function pinch(x0, y0, x1, y1) {
   await touchPts("touchStart", [{ x: x0, y: y0, id: 1 }]);
   await sleep(30);
@@ -136,7 +137,7 @@ async function pinch(x0, y0, x1, y1) {
     { x: x1 + 40, y: y1, id: 2 },
   ]);
   await sleep(30);
-  // Lift finger 2: touchEnd lists only the points that REMAIN down.
+  // Lift finger 2: remaining active set is finger 1 only.
   await touchPts("touchEnd", [{ x: x0 - 40, y: y0, id: 1 }]);
   await sleep(30);
   // Lift finger 1: empty remaining set ends the gesture.
@@ -160,9 +161,29 @@ const canvasTopAt = (x, y) =>
     ws,
     `(() => { const el = document.elementFromPoint(${x}, ${y}); const c = document.querySelector('#viewport canvas'); return !!el && (el === c || c.contains(el)); })()`,
   );
+/** Wait until the camera is truly at rest: tween finished AND successive
+ *  position samples stop changing (OrbitControls damping keeps a small
+ *  residual drift after gestures like the pinch test — fixed sleeps race it). */
+async function waitForCameraSettle(maxMs = 4000) {
+  let prev = await evalJs(ws, `JSON.stringify(__qwVerify.cameraState().position)`);
+  let still = 0;
+  const deadline = Date.now() + maxMs;
+  while (Date.now() < deadline) {
+    await sleep(120);
+    const st = await evalJs(ws, `__qwVerify.cameraState()`);
+    const now = JSON.stringify(st.position);
+    if (!st.tweenActive && now === prev) {
+      if (++still >= 2) return true;
+    } else {
+      still = 0;
+    }
+    prev = now;
+  }
+  return false;
+}
 const resetView = async () => {
   await evalJs(ws, `__qwVerify.select(null)`);
-  await sleep(700); // let the tween settle
+  await waitForCameraSettle();
 };
 
 // Freeze the camera mathematically: pause sim so bodies stop moving while
@@ -246,32 +267,39 @@ await sleep(100);
 {
   await resetView();
   const centre = await evalJs(ws, `(() => { const r = document.querySelector('#viewport canvas').getBoundingClientRect(); return { x: r.left + r.width/2, y: r.top + r.height/2 }; })()`);
-  const camBefore = await evalJs(ws, `JSON.stringify(__qwVerify.cameraState().target)`);
+  // Rotation orbits around controls.target — the TARGET never moves; the
+  // evidence that OrbitControls received the drag is the CAMERA POSITION.
+  const camBefore = await evalJs(ws, `JSON.stringify(__qwVerify.cameraState().position)`);
   await drag(centre.x, centre.y, centre.x + 220, centre.y + 60);
-  await sleep(250);
+  await sleep(400); // let damping settle so the next test starts from rest
   const st = await sel();
-  const camAfter = await evalJs(ws, `JSON.stringify(__qwVerify.cameraState().target)`);
+  const camAfter = await evalJs(ws, `JSON.stringify(__qwVerify.cameraState().position)`);
   check("drag past tolerance does not select anything", st.selectedId === null, JSON.stringify(st));
-  check("drag still drives OrbitControls (target changed)", camBefore !== camAfter, `${camBefore} → ${camAfter}`);
+  check("drag still drives OrbitControls (camera position changed)", camBefore !== camAfter, `${camBefore} → ${camAfter}`);
 }
 
 // 7. mobile tap selects a body
 {
   await resetView();
-  // Re-project after the drag changed the view; find a body now on screen.
-  let hit = null;
+  // Re-project after the drag changed the view; only tap a point whose LIVE
+  // raycast resolves to that body (damping tail can shift the camera between
+  // round-trips — probe-then-tap keeps this about input plumbing).
+  let done = false;
   for (const id of ["jupiter", "saturn", "mars", "earth", "sun"]) {
     const s = await screenOf(id);
-    if (s && s.onScreen && s.x > 40 && s.y > 40 && s.x < 1240) { hit = { id, s }; break; }
-  }
-  if (hit) {
-    await tap(hit.s.x, hit.s.y);
-    await sleep(120);
+    if (!s || !s.onScreen || s.x < 40 || s.y < 40 || s.x > 1240) continue;
+    const probe = await evalJs(ws, `__qwVerify.pickProbe(${s.x}, ${s.y})`);
+    if (probe.id !== id) continue;
+    const top = await canvasTopAt(s.x, s.y);
+    if (!top) continue;
+    await tap(s.x, s.y);
+    await sleep(150);
     const st = await sel();
-    check(`touch tap selects ${hit.id}`, st.selectedId === hit.id, JSON.stringify(st));
-  } else {
-    check("a body was on screen for the touch tap", false);
+    check(`touch tap selects ${id}`, st.selectedId === id, JSON.stringify(st));
+    done = true;
+    break;
   }
+  if (!done) check("a probe-verified body was tap-able", false);
 }
 
 // 7b. moon click selects the moon and derives parent as system/anchor
@@ -319,11 +347,15 @@ await sleep(100);
 
 // 9. resize keeps picking accurate (fresh rect per pick)
 {
-  await resetView();
+  // Fresh page: the pinch test leaves OrbitControls damping residuals that
+  // no fixed settle can fully erase — a reload is the deterministic reset.
+  await send(ws, "Page.reload", {});
+  await sleep(3500); // boot + first frames (listeners/errors keep streaming)
+  await evalJs(ws, `__qwVerify.setPlaying(false)`);
   await send(ws, "Emulation.setDeviceMetricsOverride", {
     width: 700, height: 500, deviceScaleFactor: 2, mobile: false,
   });
-  await sleep(1500); // resize + camera tween fully settles at the new size
+  await waitForCameraSettle(); // resize + camera fully at rest at the new size
   let done = false;
   for (const id of ["jupiter", "mars", "earth", "sun", "saturn"]) {
     const s = await screenOf(id);
@@ -347,23 +379,34 @@ await sleep(100);
 
 // 10. rapid re-selection during camera animation delivers the LATEST pick
 {
-  await resetView();
-  const a = await screenOf("mars");
-  await click(a.x, a.y); // starts a tween
-  await sleep(150); // mid-flight
-  const b = await screenOf("venus");
-  if (b && b.onScreen && Math.abs(b.x - a.x) + Math.abs(b.y - a.y) > 20) {
-    await click(b.x, b.y);
+  await resetView(); // global framing: multiple bodies comfortably clickable
+  // Pre-probe TWO distinct bodies at REST, then click both while the first
+  // tween is still running. The ease-in-out tween barely moves in its first
+  // ~200ms (cubic k≈0.02 at t=0.15), so the pre-probed points are still
+  // valid at the second click; probing mid-flight instead would race the
+  // projection itself.
+  const pts = [];
+  for (const id of ["mars", "earth", "jupiter", "saturn", "sun", "venus"]) {
+    const s = await screenOf(id);
+    if (!s || !s.onScreen || s.x < 40 || s.y < 40 || s.x > 660 || s.y > 460) continue;
+    const probe = await evalJs(ws, `__qwVerify.pickProbe(${s.x}, ${s.y})`);
+    if (probe.id !== id) continue;
+    if (!(await canvasTopAt(s.x, s.y))) continue;
+    pts.push({ id, s });
+    if (pts.length === 2) break;
+  }
+  if (pts.length === 2) {
+    const [a, b] = pts;
+    await click(a.s.x, a.s.y); // starts a tween
+    await sleep(150); // mid-flight (tween definitely active)
+    const mid = await evalJs(ws, `__qwVerify.cameraState().tweenActive`);
+    await click(b.s.x, b.s.y);
     await sleep(200);
     const st = await sel();
     check("re-select mid-animation delivers the newest selection",
-      st.selectedId === "venus", JSON.stringify(st));
+      st.selectedId === b.id, JSON.stringify({ ...st, first: a.id, second: b.id, midFlight: mid }));
   } else {
-    // Venus not comfortably clickable right now — assert at least the first
-    // selection still holds and nothing threw.
-    const st = await sel();
-    check("mid-animation re-select (fallback: first selection intact, no error)",
-      st.selectedId === "mars", JSON.stringify(st));
+    check("two probe-verified bodies were clickable at rest", false, pts.map((p) => p.id).join(","));
   }
 }
 
