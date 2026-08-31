@@ -19,6 +19,14 @@ import {
   systemParentOf,
   type PickableNode,
 } from "./core/bodyIdentity";
+import { ndcFromClientPoint } from "./core/pickCoords";
+import { TapGestureTracker } from "./core/pointerGesture";
+import {
+  CameraTween,
+  cameraFocusDistance,
+  type FocusInput,
+  type FollowFn,
+} from "./core/CameraTween";
 import { InfoPanel } from "./ui/InfoPanel";
 import { ControlPanel } from "./ui/ControlPanel";
 import { Labels } from "./ui/Labels";
@@ -94,6 +102,8 @@ const info = new InfoPanel(viewport, scale, (b) => {
     fromLabelKo: dist?.fromLabelKo ?? "—",
   };
 });
+// Live real distances in the panel read the same sim clock as the scene.
+info.setSimDaysProvider(() => clock.simDays);
 
 // Header + disclaimer (spec §14).
 const header = document.createElement("header");
@@ -110,20 +120,83 @@ disclaimer.textContent =
   "이 시각화는 실제 천문 데이터를 사용하지만, 궤도 거리는 로그 스케일로 압축되고 천체 크기는 화면 가독성을 위해 과장됩니다. 렌더 크기와 렌더 거리는 하나의 동일한 물리 스케일을 공유하지 않습니다.";
 viewport.appendChild(disclaimer);
 
-// --- camera focus tween (ease-in-out, spec §9) -------------------------------
-interface Tween {
-  fromPos: THREE.Vector3;
-  toTarget: THREE.Vector3;
-  fromTarget: THREE.Vector3;
-  dist: number;
-  t: number;
-}
-let tween: Tween | null = null;
-/** Tween duration in REAL seconds (frame-rate independent, spec §8/§16). */
-const CAMERA_TWEEN_SECONDS = 1.0;
+// --- camera focus tween (ease-in-out, spec §9; task t_31402ac4) -------------
+// The flight itself lives in core/CameraTween.ts. ONE path re-frames the
+// camera for every focus event (selection, distance-mode change, reset):
+// reframeCamera() derives the DISTANCE through cameraFocusDistance() fed by
+// focusFrameFor() — computed from ScaleManager AFTER the new selection
+// state is applied, so the camera and the focus-mode scale mapping draw
+// from the same numbers and can never disagree (spec §4/§13). The tween
+// starts from the camera's ACTUAL state (mid-flight re-select cancels the
+// previous leg safely) and re-reads the body's live world position each
+// step, so a moving body leaves target and final position consistent.
+const cameraTween = new CameraTween();
+const camOutPos = new THREE.Vector3();
+const camOutTarget = new THREE.Vector3();
+/** Global-view follow anchor: the scene origin (Sun-centred framing). */
+const GLOBAL_FOLLOW: FollowFn = (out) => out.set(0, 0, 0);
+let followFn: FollowFn = GLOBAL_FOLLOW;
 
-function easeInOut(t: number): number {
-  return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+/**
+ * Render-unit inputs for the focus-distance mapping, evaluated in the
+ * DESTINATION state (call AFTER scale.selectedId is set — the §13 system
+ * boost and moon-band expansion are then baked in exactly as the scene will
+ * render them). Moons map against their PARENT-LOCAL satellite system —
+ * the parent's rendered moon ring, not the whole solar system (spec §5/§13).
+ */
+function focusFrameFor(id: string): FocusInput | null {
+  const body = solar.bodies.get(id);
+  if (!body) return null;
+  const d = body.data;
+  // Raw (size-mode only) vs effective (as-rendered, boost included) radius
+  // are deliberately separate — the camera frames the effective one.
+  const { raw, effective } = scale.bodyRadiusPair(d);
+  const systemKey = systemParentOf(d); // moon → parent, planet → itself
+  let systemExtent = 0;
+  if (systemKey) {
+    // moonDistanceRange lives on the MOON bodies (SolarSystem.computeMoonRanges
+    // shares the system-wide a(1±e) span with every sibling) — read it from a
+    // child, never from the parent.
+    let range: { minKm: number; maxKm: number } | null = null;
+    for (const b of solar.bodies.values()) {
+      if (b.data.type === "moon" && b.data.parentId === systemKey) {
+        range = b.moonDistanceRange;
+        break;
+      }
+    }
+    const sys = solar.bodies.get(systemKey);
+    if (sys && range) {
+      const parentEffective = scale.mapBodyRadius(sys.data);
+      systemExtent = scale.mapSatelliteDistance(
+        range.maxKm,
+        range.minKm,
+        range.maxKm,
+        parentEffective,
+      );
+    }
+  }
+  if (d.render?.hasRings) {
+    // Ring outer edge in render units (outer scale × rendered radius).
+    systemExtent = Math.max(systemExtent, effective * (d.render.ringOuterScale ?? 2.3));
+  }
+  return {
+    type: d.type,
+    rawRenderRadius: raw,
+    effectiveRenderRadius: effective,
+    systemBoosted: systemKey !== null && systemKey === id && scale.systemBoostActive,
+    systemExtent,
+  };
+}
+
+/** Start the camera flight toward the CURRENT selection in its new state. */
+function reframeCamera(): void {
+  const input = selectedId ? focusFrameFor(selectedId) : null;
+  const dist = cameraFocusDistance(input);
+  const body = selectedId ? solar.bodies.get(selectedId) : undefined;
+  // getWorldPosition: moons are parent-local (bodyIdentity.coordFrameOf) —
+  // scene-coordinate math ALWAYS goes through world space.
+  followFn = body ? (out) => body.group.getWorldPosition(out) : GLOBAL_FOLLOW;
+  cameraTween.start(controls.target, camera.position, dist);
 }
 
 function focusOn(id: string | null): void {
@@ -139,46 +212,34 @@ function focusOn(id: string | null): void {
   for (const [bid, orbit] of solar.orbits) {
     orbit.setHighlighted(bid === id);
   }
-  const worldTarget = new THREE.Vector3();
-  let dist = 340;
-  if (!id) {
-    worldTarget.set(0, 0, 0);
-  } else {
-    const body = solar.bodies.get(id);
-    if (!body) return;
-    body.group.getWorldPosition(worldTarget);
-    dist = Math.max(body.renderRadius * 6, 6);
-    const systemKey = systemParentOf(body.data);
-    if (systemKey) {
-      const maxR = Math.max(
-        1,
-        ...[...solar.bodies.values()]
-          .filter((b) => b.data.type === "moon" && b.data.parentId === systemKey)
-          .map((b) => b.moonRenderDistance(b.data.semiMajorAxis ?? 0, scale)),
-      );
-      dist = Math.max(dist, maxR * 2.6, body.renderRadius * 5);
-    }
-  }
-  tween = {
-    fromPos: camera.position.clone(),
-    fromTarget: controls.target.clone(),
-    toTarget: worldTarget,
-    dist,
-    t: 0,
-  };
+  // Camera half of the SAME path (t_31402ac4): distance mapping + tween both
+  // read the state just applied here; a mid-flight call simply re-starts
+  // from the live camera state.
+  reframeCamera();
 }
 
-// --- picking (spec §10) ------------------------------------------------------
+// --- picking (spec §10; tap contract t_06891a0f) -----------------------------
 const raycaster = new THREE.Raycaster();
 const pointer = new THREE.Vector2();
 
-function pick(ev: { clientX: number; clientY: number }): string | null {
-  // Viewport-relative normalized coords (renderer fills #viewport, which is
-  // full-window fixed — see styles.css). devicePixelRatio is irrelevant here:
-  // NDC is CSS-pixel based, so dpr changes need no adjustment (spec §10).
-  const rect = renderer.domElement.getBoundingClientRect();
-  pointer.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
-  pointer.y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
+/**
+ * Pick at a viewport point in CSS px (event clientX/clientY). NDC comes from
+ * core/pickCoords.ndcFromClientPoint against a FRESH getBoundingClientRect():
+ * dpr-independent (NDC is CSS-pixel geometry), resize-safe (the rect is never
+ * cached), and correct under rotated viewports. A degenerate zero-size rect
+ * returns null — the raycaster is never fed NaN/Infinity.
+ * intersectObjects sorts ascending, so the FIRST hit that resolves to a real
+ * dataset body (parent-chain walk, core/bodyIdentity) is the nearest valid
+ * intersection. Empty space returns null; nothing ever throws (spec §10).
+ */
+function pickAt(clientX: number, clientY: number): string | null {
+  const ndc = ndcFromClientPoint(
+    clientX,
+    clientY,
+    renderer.domElement.getBoundingClientRect(),
+  );
+  if (!ndc) return null;
+  pointer.set(ndc.x, ndc.y);
   raycaster.setFromCamera(pointer, camera);
   // recursive=true: clicks on a body's children (ring mesh, tilt-frame
   // descendants, any future decoration) must resolve too — the parent-chain
@@ -190,9 +251,6 @@ function pick(ev: { clientX: number; clientY: number }): string | null {
   }
   return null;
 }
-
-/** Drag threshold (CSS px): above this an orbit drag is never a tap-select. */
-const TAP_MOVE_TOLERANCE_PX = 6;
 
 /**
  * Single call site for body selection (spec: overlay task event contract).
@@ -210,26 +268,43 @@ function selectBody(id: string): void {
 }
 (window as unknown as { __qwSelect?: (id: string) => void }).__qwSelect = selectBody;
 
-let downX = 0, downY = 0;
-renderer.domElement.addEventListener("pointerdown", (ev) => {
-  downX = ev.clientX;
-  downY = ev.clientY;
-});
-renderer.domElement.addEventListener("pointerup", (ev) => {
-  // Pointer events cover mouse AND touch: a drag that moved OrbitControls
-  // past the tolerance is never re-interpreted as a tap-select (spec §10).
-  if (Math.hypot(ev.clientX - downX, ev.clientY - downY) > TAP_MOVE_TOLERANCE_PX) return;
-  const id = pick(ev);
-  if (id) selectBody(id);
-});
-renderer.domElement.addEventListener("dblclick", (ev) => {
-  if (!pick(ev)) {
+/**
+ * Pointer lifecycle (t_06891a0f): ONE tracker mediates every pointerdown/up/
+ * cancel, so the tap decision is pure, unit-tested logic (core/pointerGesture)
+ * rather than ad-hoc state in the listeners. Desktop click and touch tap both
+ * arrive as pointer events; an OrbitControls drag past the tolerance and any
+ * multi-touch (pinch) gesture are never re-interpreted as a tap-select.
+ * Registered ONCE here on the canvas; removed by teardown() below.
+ */
+const tapGesture = new TapGestureTracker();
+
+const onPointerDown = (ev: PointerEvent): void => {
+  tapGesture.down(ev.pointerId, ev.clientX, ev.clientY);
+};
+const onPointerUp = (ev: PointerEvent): void => {
+  const tap = tapGesture.up(ev.pointerId, ev.clientX, ev.clientY);
+  if (!tap) return; // drag / pinch member / stray up — leave OrbitControls' work alone
+  const id = pickAt(tap.x, tap.y);
+  if (id) selectBody(id); // empty space → no selection change, never an error
+};
+const onPointerCancel = (ev: PointerEvent): void => {
+  tapGesture.cancel(ev.pointerId);
+};
+const onDoubleClick = (ev: MouseEvent): void => {
+  // Deselect only when the double-click lands on empty space.
+  if (!pickAt(ev.clientX, ev.clientY)) {
     focusOn(null);
     info.hide();
   }
-});
-renderer.domElement.addEventListener("pointermove", (ev) => {
-  const id = pick(ev);
+};
+const onPointerMove = (ev: PointerEvent): void => {
+  // While a pointer is down (orbit drag in progress) skip the hover pick —
+  // the tooltip would chase a camera that is deliberately moving (spec §10).
+  if (tapGesture.activeCount > 0) {
+    info.hideTooltip();
+    return;
+  }
+  const id = pickAt(ev.clientX, ev.clientY);
   if (id) {
     const b = getBodyById(id);
     if (b) info.showTooltip(ev.clientX, ev.clientY, b);
@@ -238,7 +313,23 @@ renderer.domElement.addEventListener("pointermove", (ev) => {
     info.hideTooltip();
     renderer.domElement.style.cursor = "default";
   }
-});
+};
+
+const canvas = renderer.domElement;
+canvas.addEventListener("pointerdown", onPointerDown);
+canvas.addEventListener("pointerup", onPointerUp);
+canvas.addEventListener("pointercancel", onPointerCancel);
+canvas.addEventListener("dblclick", onDoubleClick);
+canvas.addEventListener("pointermove", onPointerMove);
+
+/** Remove every canvas listener this module added (component/scene teardown). */
+function teardownPicking(): void {
+  canvas.removeEventListener("pointerdown", onPointerDown);
+  canvas.removeEventListener("pointerup", onPointerUp);
+  canvas.removeEventListener("pointercancel", onPointerCancel);
+  canvas.removeEventListener("dblclick", onDoubleClick);
+  canvas.removeEventListener("pointermove", onPointerMove);
+}
 
 // --- control panel (spec §8, §14) --------------------------------------------
 const controlPanel = new ControlPanel(viewport, {
@@ -255,6 +346,10 @@ const controlPanel = new ControlPanel(viewport, {
     scale.distanceMode = m;
     if (m === "focus" && !scale.focusAnchorId) scale.focusAnchorId = "earth";
     solar.animateScaleChange();
+    // Focus mode RE-CENTRES the scene on its anchor (and leaving it moves
+    // everything back), so the camera re-frames through the SAME tween path
+    // as a selection — one consistent route, no competing target updates.
+    reframeCamera();
   },
   onSizeMode: (m) => {
     scale.sizeMode = m;
@@ -286,10 +381,19 @@ function onResize(): void {
   labelRenderer.setSize(window.innerWidth, window.innerHeight);
 }
 window.addEventListener("resize", onResize);
-window.addEventListener("beforeunload", () => {
+const onTeardown = (): void => {
+  teardownPicking(); // canvas pointer listeners go with the scene (t_06891a0f)
+  window.removeEventListener("resize", onResize);
+  overlay.dispose();
   solar.dispose();
   renderer.dispose();
-});
+};
+window.addEventListener("beforeunload", onTeardown);
+// Test/verification hook: removes ONLY the picking listeners added by this
+// module (same convention as always-exposed __qwSelect). After calling it the
+// canvas is inert to clicks/taps; scene resources are untouched.
+(window as unknown as { __qwTeardownPicking?: () => void }).__qwTeardownPicking =
+  teardownPicking;
 
 // --- initial layout + loop ---------------------------------------------------
 solar.refreshScales(0);
@@ -454,15 +558,20 @@ if (import.meta.env.VITE_VERIFY === "1") {
       scale.distanceMode = m;
       if (m === "focus" && !scale.focusAnchorId) scale.focusAnchorId = "earth";
       solar.animateScaleChange();
+      reframeCamera(); // same unified focus path as the UI (t_31402ac4)
     },
     setSizeMode: (m: "enhanced" | "relative" | "uniform") => {
       scale.sizeMode = m;
       solar.animateScaleChange();
     },
     select: (id: string | null) => {
-      focusOn(id);
-      if (id) info.showBody(id);
-      else info.hide();
+      // Same single entry as real clicks: focus + panel content + overlay
+      // auto-restore via qw:body-selected (t_30700e13 contract).
+      if (id) selectBody(id);
+      else {
+        focusOn(null);
+        info.hide();
+      }
     },
     /** Deterministic time travel for headless verification (no rAF needed). */
     setSimDays: (days: number) => {
@@ -493,6 +602,80 @@ if (import.meta.env.VITE_VERIFY === "1") {
     spinRad: (id: string) => {
       const m = solar.bodies.get(id)?.mesh;
       return m ? +m.rotation.y.toFixed(4) : null;
+    },
+    /**
+     * Render radius + projected screen point (CSS px, viewport-page space)
+     * of a body — lets browser checks (t_06891a0f picking regression) click
+     * exactly ON a body without hardcoding positions. Same NDC convention
+     * as picking, inverted.
+     */
+    bodyScreen(id: string) {
+      const b = solar.bodies.get(id);
+      if (!b) return null;
+      const v = new THREE.Vector3();
+      b.group.getWorldPosition(v);
+      v.project(camera);
+      const rect = renderer.domElement.getBoundingClientRect();
+      return {
+        renderRadius: +b.renderRadius.toFixed(3),
+        x: +((v.x * 0.5 + 0.5) * rect.width + rect.left).toFixed(2),
+        y: +((-v.y * 0.5 + 0.5) * rect.height + rect.top).toFixed(2),
+        onScreen: Math.abs(v.x) <= 1 && Math.abs(v.y) <= 1 && v.z < 1,
+      };
+    },
+    /** Selection state of record (raycast/programmatic — whatever happened),
+     *  derived through the ONE contract (core/bodyIdentity.selectionFor). */
+    selectedState: () => selectionFor(selectedId),
+    /** Screen point (CSS px, page space) k × render-radius to the CAMERA-RIGHT
+     *  of a body's centre — same depth, so ≈ k render radii on screen. Lets
+     *  picking checks hit e.g. Saturn's ring annulus (1 < k < ringOuterScale)
+     *  deterministically without hardcoded coordinates. */
+    bodyScreenOffset(id: string, k: number) {
+      const b = solar.bodies.get(id);
+      if (!b) return null;
+      const world = new THREE.Vector3();
+      b.group.getWorldPosition(world);
+      const right = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 0);
+      const p = world.clone().addScaledVector(right, k * b.renderRadius);
+      p.project(camera);
+      const rect = renderer.domElement.getBoundingClientRect();
+      return {
+        x: +((p.x * 0.5 + 0.5) * rect.width + rect.left).toFixed(2),
+        y: +((-p.y * 0.5 + 0.5) * rect.height + rect.top).toFixed(2),
+        onScreen: Math.abs(p.x) <= 1 && Math.abs(p.y) <= 1 && p.z < 1,
+        k,
+      };
+    },
+    /**
+     * Camera-focus contract (t_31402ac4): where the camera/target are vs the
+     * followed body's CURRENT world position. `gap` is target−world; the
+     * autotest asserts it converges to ~0 with finite, NaN-free values.
+     */
+    cameraState: () => {
+      const tgt = controls.target;
+      const p = camera.position;
+      const anchorId = scale.selectedId ?? null;
+      const body = anchorId ? solar.bodies.get(anchorId) : undefined;
+      const world = new THREE.Vector3();
+      if (body) body.group.getWorldPosition(world);
+      return {
+        anchorId,
+        tweenActive: cameraTween.active,
+        tweenProgress: +cameraTween.progressValue.toFixed(3),
+        tweenDistance: +cameraTween.lastDistance.toFixed(2),
+        target: [+tgt.x.toFixed(3), +tgt.y.toFixed(3), +tgt.z.toFixed(3)],
+        position: [+p.x.toFixed(3), +p.y.toFixed(3), +p.z.toFixed(3)],
+        world: body
+          ? [+world.x.toFixed(3), +world.y.toFixed(3), +world.z.toFixed(3)]
+          : [0, 0, 0],
+        gap: body
+          ? +tgt.distanceTo(world).toFixed(3)
+          : +tgt.length().toFixed(3),
+        camDist: +p.distanceTo(tgt).toFixed(2),
+        finite:
+          Number.isFinite(tgt.x) && Number.isFinite(tgt.y) && Number.isFinite(tgt.z) &&
+          Number.isFinite(p.x) && Number.isFinite(p.y) && Number.isFinite(p.z),
+      };
     },
     report,
     starFieldVisible: () => {
@@ -533,6 +716,29 @@ if (import.meta.env.VITE_VERIFY === "1") {
       [1850, () => log("t_clock_paused_a", { clock: api.clockState() })],
       [1950, () => log("t_clock_paused_b", { clock: api.clockState() })],
       [2050, () => { api.resetClock(); api.setPlaying(true); log("t_clock_reset", { clock: api.clockState() }); }],
+      // Camera focus contract (t_31402ac4). Tween = 1.0 s real; every settle
+      // check waits >1 s after the (re)start, headless rAF included.
+      [2100, () => api.select("mars")],
+      [3400, () => log("t_cam_mars_settled", { cam: api.cameraState() })],
+      // Moving target: reselect, then time-travel WHILE the tween runs —
+      // target + camera must land on the body's CURRENT world position.
+      [3500, () => api.select("saturn")],
+      [3550, () => api.setSimDays(T + 120)],
+      [4900, () => log("t_cam_saturn_motion", { cam: api.cameraState() })],
+      // Moon focus: frames the PARENT-LOCAL system (io → Jupiter's moon ring).
+      [5000, () => api.select("io")],
+      [6400, () => log("t_cam_io_settled", { cam: api.cameraState() })],
+      // Rapid consecutive re-selects mid-flight: safe cancel, no jump/NaN —
+      // final state must still converge on Earth.
+      [6500, () => api.select("ganymede")],
+      [6560, () => api.select("callisto")],
+      [6620, () => api.select("earth")],
+      [7900, () => log("t_cam_reselect_chain", { cam: api.cameraState() })],
+      // Distance-mode focus entry goes through the SAME camera path.
+      [8000, () => api.setDistanceMode("focus")],
+      [9400, () => log("t_cam_focus_mode", { cam: api.cameraState() })],
+      [9500, () => api.select(null)],
+      [10900, () => log("t_cam_global_back", { cam: api.cameraState() })],
     ];
     if (new URLSearchParams(location.search).get("moondump") === "1") {
       const dump: Record<string, string | number> = {};

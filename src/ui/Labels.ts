@@ -45,9 +45,13 @@ export class Labels {
       const d = body.data;
       let show = this.visible;
       if (d.type === "moon") {
-        show = show && selectedId !== null && (d.parentId === systemParentId || d.id === selectedId);
-        // distance-based declutter: drop tiny-body labels when far away
-        if (show) {
+        const inRevealedSystem = systemParentId !== null && d.parentId === systemParentId;
+        show = show && selectedId !== null && (inRevealedSystem || d.id === selectedId);
+        // Distance declutter (spec §11) applies to moon labels OUTSIDE the
+        // revealed system only. Inside it the camera legitimately focuses
+        // far enough to frame the boosted moon orbits — decluttering there
+        // would hide the very labels the selection exists to reveal.
+        if (show && !inRevealedSystem) {
           const dist = camera.position.distanceTo(body.group.getWorldPosition(this.scratch));
           if (dist > 120) show = false;
         }

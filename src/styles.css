@@ -117,6 +117,7 @@ html, body {
 /* Panels have padding; keep headings clear of the button. */
 .panel[data-panel] { padding-top: 30px; }
 .panel[data-panel] > h1, .panel[data-panel] > h2 { margin-right: 20px; }
+.info-content > h2 { margin-right: 20px; }
 
 /* Collapsed: fade + slide out, and never intercept pointer input. */
 .panel-collapsed {

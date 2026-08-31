@@ -101,6 +101,11 @@ export class ScaleManager {
     return this.selectedId !== null && this.selectedId !== "sun";
   }
 
+  /** Extra outer-ring scale for the selected system's moons (spec §13). */
+  get systemMoonBoostFactor(): number {
+    return this.cfg.systemMoonBoost;
+  }
+
   /**
    * One-shot mode switch used by the UI (spec §14) and tests. Focus mode is
    * always anchored: if nothing is selected, anchor on Earth (a useful
@@ -232,8 +237,34 @@ export class ScaleManager {
     return minR + normalized * (maxR - minR);
   }
 
+  /**
+   * Radius pair for camera focus (t_31402ac4): `raw` is the size-mode
+   * mapping alone, `effective` is what the scene renders NOW (with the §13
+   * boost when this body's system is selected). The camera frames
+   * `effective`; `raw` documents the actual (pre-boost) size.
+   */
+  bodyRadiusPair(body: CelestialBodyData): { raw: number; effective: number } {
+    const raw = this.mapBodyRadiusBase(body);
+    const boosted =
+      this.systemBoostActive && body.id === this.selectedParentId()
+        ? raw * this.cfg.systemRadiusBoost
+        : raw;
+    return { raw, effective: boosted };
+  }
+
   /** Rendered body radius under the active size mode (spec §6). */
   mapBodyRadius(body: CelestialBodyData): number {
+    const r = this.mapBodyRadiusBase(body);
+    // Spec §5/§13: enlarge the selected planet itself (its moons ride along
+    // via parentRenderRadius).
+    if (this.systemBoostActive && body.id === this.selectedParentId()) {
+      return r * this.cfg.systemRadiusBoost;
+    }
+    return r;
+  }
+
+  /** Size-mode radius WITHOUT the selection boost (base mapping). */
+  mapBodyRadiusBase(body: CelestialBodyData): number {
     const ratio = body.radiusKm / EARTH_R;
 
     if (body.type === "star") return this.cfg.sunRenderRadius;
@@ -255,11 +286,6 @@ export class ScaleManager {
             : THREE.MathUtils.clamp(0.55 + 0.65 * Math.sqrt(ratio), 0.55, 4.0);
     }
 
-    // Spec §5/§13: enlarge the selected planet itself (its moons ride along
-    // via parentRenderRadius).
-    if (this.systemBoostActive && body.id === this.selectedParentId()) {
-      r *= this.cfg.systemRadiusBoost;
-    }
     return r;
   }
 

@@ -133,6 +133,20 @@ src/
   실시간 dt 기반(`SolarSystem.update(simDays, dtSec)`) — 60fps 가정이 없다.
   검증: `node scripts/sim-time.test.mjs` (22 항목, 순수 수학),
   autotest의 `t_clock_*` 태그(정지 동결·리셋·배속), `scripts/hud-check.sh`.
+- 라벨·인포 패널(t_d9203468): 실제값 표시 규칙은 `ui/format.ts`가 유일
+  (순수·Node 테스트 `scripts/info-format.test.mjs` 11항목). 누락 데이터는
+  절대 `undefined`/`NaN`으로 새지 않고 `MISSING_DISPLAY`("—")로 통일,
+  km↔AU는 IAU 정확 상수(149,597,870.7 km) 하나로 동일 반올림 규칙을 공유해
+  두 단위 표기가 서로 어긋나지 않는다. 이중 언어 이름은 `bilingualName`
+  ("목성 · Jupiter") 단일 규칙. `InfoPanel`은 실데이터 섹션과 렌더 값
+  섹션(`units`, "실데이터 아님" 명시)을 헤더로 분리하고, `showBody(id)`로
+  선택을 받고 `refresh()`로만 갱신한다 — 프레임 루프(200ms)가 현재 선택을
+  라이브 sim 시간으로 재렌더하므로 움직이는 천체·모드 전환과 항상 일치,
+  직접 DOM 수정 경로가 없어 표시 상태가 갈라질 수 없다. 패널 개별/전역
+  숨김 상태에서도 `selectBody` → `qw:body-selected` 경로로 자동 복구
+  (`__qwVerify.select(id)`도 동일 경유). 검증:
+  `node scripts/info-panel-browser-check.mjs` (headless Chrome CDP, 행성·
+  위성과 선택·레이블 동기화·복구·420px까지).
 - 커밋 규약: `<type>: <summary> [<kanban-task-id>]`, 태스크 완료 시 1커밋.
 
 ## Known-limitations (이 단계 기준)
