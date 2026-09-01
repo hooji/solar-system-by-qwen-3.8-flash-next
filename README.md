@@ -98,11 +98,15 @@ id 중복/필수 필드, parentId 해석, 행성 거리·공전주기 순서, �
   (`off × 0.75·26 units/AU`), 그 너머는 `log1p`로 캡(300 units)까지 완만하게
   압축. 행성·위성 구분 없이 모든 궤도선이 같은 매퍼를 지나므로
   천체와 궤도가 항상 일치한다(스펙 §4/§13).
-- **위성 거리**: 모행성 Group 로컬 좌표, `log1p` 매핑 후 렌더 반지름의
-  2.5~9배 구간. 매핑 범위는 반장축이 아니라 각 위성의 실제 반지름 스팬
-  `a(1±e)`의 최솟값/최댓값으로 잡는다 — 이심률이 큰 위성이나 단일 위성계(달·
-  트리톤)에서도 9배 밴드를 초과하지 않는다. 행성 선택 시 모계 밴드가
-  2.2배 확장(스펙 §13 디테일 뷰).
+- **위성 거리**: 모행성 Group 로컬 좌표. 크기는 반장축 a를 `log1p` 매핑해
+  렌더 반지름의 2.5~9배 밴드에 올리고(매핑 범위는 반장축이 아니라 각 위성의
+  실제 반지름 스팬 `a(1±e)`의 최솟값/최댓값 — 이심률이 큰 위성이나 단일
+  위성계(달·트리톤)에서도 9배 밴드를 초과하지 않는다), 궤적 자체는 **궤도당
+  단 하나의 등방 스케일(units/km)**로만 그려진다 — 반지름을 꼭짓점마다
+  재매핑하지 않으므로 θ·a:b·e가 정확히 보존되어 타원이 타원으로 남는다
+  (t_5a546f13 진단, t_d17906bf 수정, docs/orbit-shape-diagnosis.md). 행성
+  선택 시 모계 밴드가 2.2배 확장(스펙 §13 디테일 뷰)되며 이 확장도 등방
+  스케일이라 형태는 그대로다.
 - ** 크기(enhanced, 기본)**: `clamp(0.55 + 0.65·√(R/R⊕), 0.55, 4.0)`, 위성은
   `clamp(0.16 + 0.4·√(R/R⊕), 0.16, 0.75)`, 태양 별도 고정 8
 - **크기(relative)**: 실제 비례 강조 `clamp(0.25 + 0.35·(R/R⊕), 0.25, 6.5)`
@@ -238,6 +242,17 @@ src/
   `node scripts/integration-browser-check.mjs` (CDP 14 항목: 루프 정지,
   리스너 전량 해제, teardown 후 canvas 무반응, 리마운트 후 1회 재등록·
   선택 재작동, dpr-2 리사이즈 클릭, 콘솔 에러 0).
+- 위성 궤도 형태 브라우저 회귀 (t_b4bcc438): `orbit-shape.test.mjs`가 Node에서
+  실제 클래스를 검증한다면 `scripts/orbit-shape-browser-check.mjs`는 WebGL에
+  실제 업로드된 LineLoop 버텍스를 CDP로 읽어 검증한다 — 25개 parent-local
+  위성 전원의 타원 재구성(e′=실제 e, focus-conic 잔차 <1e-6)·본체- line 일치·
+  2.5×~9×(×2.2 부스트) 밴드·log/linear/focus 비트 단위 동일성·행성 line
+  회귀(focus 앵커 line 숨김 포함)·중심 천체 전환(전 위성계 + 달 직접 선택)
+  후 레이아웃 유지·화면 사영에서 부모 구가 각 위성의 바깥 링 안에 포함됨.
+  실행: `VITE_VERIFY=1 npm run build && npm run preview -- --port 5211` +
+  headless Chrome `--remote-debugging-port=9333` 후
+  `node scripts/orbit-shape-browser-check.mjs http://127.0.0.1:9333 http://localhost:5211/`
+  (391 항목, 대표 스크린샷 8장 출력).
 - 커밋 규약: `<type>: <summary> [<kanban-task-id>]`, 태스크 완료 시 1커밋.
 
 ## Known-limitations (이 단계 기준)

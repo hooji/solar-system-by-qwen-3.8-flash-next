@@ -693,6 +693,18 @@ if (import.meta.env.VITE_VERIFY === "1") {
         onScreen: Math.abs(v.x) <= 1 && Math.abs(v.y) <= 1 && v.z < 1,
       };
     },
+    /** Project an arbitrary WORLD point to screen (CSS px) + NDC — used by
+     *  the orbit-shape browser check (t_b4bcc438) to prove a projected orbit
+     *  ring CONTAINS its parent's projected centre (perspective interior test). */
+    projectWorld(x: number, y: number, z: number) {
+      const v = new THREE.Vector3(x, y, z).project(camera);
+      const rect = renderer.domElement.getBoundingClientRect();
+      return {
+        x: +((v.x * 0.5 + 0.5) * rect.width + rect.left).toFixed(2),
+        y: +((-v.y * 0.5 + 0.5) * rect.height + rect.top).toFixed(2),
+        ndcZ: +v.z.toFixed(4),
+      };
+    },
     /** Selection state of record (raycast/programmatic — whatever happened),
      *  derived through the ONE contract (core/bodyIdentity.selectionFor). */
     selectedState: () => selectionFor(selectedId),
@@ -774,7 +786,52 @@ if (import.meta.env.VITE_VERIFY === "1") {
           Number.isFinite(p.x) && Number.isFinite(p.y) && Number.isFinite(p.z),
       };
     },
+    /**
+     * Orbit-shape browser check (t_b4bcc438): raw DRAWN vertices of a body's
+     * orbit line in its container space (moons: parent-local, exactly what
+     * OrbitRenderer wrote; heliocentric: scene/root space incl. focus-mode
+     * compression), plus visibility state. Reads the live buffer — the very
+     * geometry the GPU rasterises, no reimplementation.
+     */
+    orbitSamples: (id: string) => {
+      const o = solar.orbits.get(id);
+      if (!o) return null;
+      const attr = o.line.geometry.getAttribute("position") as THREE.BufferAttribute;
+      const pts: [number, number, number][] = [];
+      for (let i = 0; i < attr.count; i++) pts.push([attr.getX(i), attr.getY(i), attr.getZ(i)]);
+      return {
+        pts,
+        visible: o.line.visible,
+        opacity: +(o.line.material as THREE.LineBasicMaterial).opacity,
+      };
+    },
+    /** Render-state metadata a body check needs (shared with info-panel path). */
+    bodyMeta: (id: string) => {
+      const b = solar.bodies.get(id);
+      if (!b) return null;
+      const p = b.group.position;
+      return {
+        type: b.data.type,
+        parentId: b.data.parentId ?? null,
+        inclinationDeg: b.data.inclinationDeg ?? 0,
+        semiMajorAxis: b.data.semiMajorAxis ?? 0,
+        eccentricity: b.data.eccentricity ?? 0,
+        renderRadius: +b.renderRadius.toFixed(4),
+        // FULL precision: apoapsis-capped moons sit EXACTLY at the 9×(×2.2)
+        // ceiling and the band check compares against parentRenderRadius×9 —
+        // rounding here would spuriously fail vertices that are on the cap.
+        parentRenderRadius: b.parentRenderRadius,
+        moonRange: b.moonDistanceRange
+          ? `${b.moonDistanceRange.minKm}-${b.moonDistanceRange.maxKm}`
+          : null,
+        // Parent-local for moons, scene-space otherwise (line lives in the
+        // same container, so the comparison is space-consistent).
+        local: [+p.x.toFixed(4), +p.y.toFixed(4), +p.z.toFixed(4)],
+      };
+    },
     report,
+    /** All live body ids (orbit-shape check enumerates moons dynamically). */
+    bodyIds: () => [...solar.bodies.keys()],
     starFieldVisible: () => {
       let v = false;
       scene.traverse((o) => {

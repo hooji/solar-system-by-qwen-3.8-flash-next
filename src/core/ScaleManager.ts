@@ -159,33 +159,33 @@ export class ScaleManager {
   }
 
   /**
-   * Full 2D orbital-plane point (AU) → render-plane (x, cz) coords in the
-   * scene's XZ plane, before inclination. Shared by CelestialBody position
-   * and OrbitRenderer line so they agree exactly.
+   * Full 2D orbital-plane point (AU, Sun-centred) → render-plane (x, cz).
+   * Shared by CelestialBody position AND OrbitRenderer lines so they agree
+   * exactly in every mode (spec §4, §13).
+   * - log/linear: radial map of |p| by its own angle.
+   * - focus: the anchor sits at the SCENE ORIGIN (the selected system is the
+   *   centre), and every body renders at compress(p − anchor) — the REAL
+   *   anchor-relative offset, log-compressed. `anchor` = anchor's real
+   *   position (AU); if null, falls back to radial mapping.
    */
   mapHeliocentricPlanePoint(
     p: PlanePoint,
     anchor: PlanePoint | null,
     out: { x: number; cz: number },
   ): { x: number; cz: number } {
-    const theta = Math.atan2(p.y, p.x);
     if (!(this.focusActive && anchor)) {
+      const theta = Math.atan2(p.y, p.x);
       const d = this.mapHeliocentricDistance(p.r);
       out.x = d * Math.cos(theta);
       out.cz = d * Math.sin(theta);
       return out;
     }
-    // Focus mode: position = anchor render position + compressed real offset.
-    const aTheta = Math.atan2(anchor.y, anchor.x);
-    const aD = this.mapHeliocentricDistance(anchor.r); // anchor pinned by radial map
-    const ax = aD * Math.cos(aTheta);
-    const acz = aD * Math.sin(aTheta);
     const offX = p.x - anchor.x;
     const offZ = p.y - anchor.y;
     const offR = Math.hypot(offX, offZ);
     const k = offR > 1e-9 ? this.mapFocusOffset(offR) / offR : 0;
-    out.x = ax + offX * k;
-    out.cz = acz + offZ * k;
+    out.x = offX * k;
+    out.cz = offZ * k;
     return out;
   }
 
@@ -212,10 +212,18 @@ export class ScaleManager {
   }
 
   /**
-   * Moon local-orbit mapping (spec §5): log1p over the shifted range inside a
+   * Satellite SIZE mapping (spec §5): log1p over the shifted range inside a
    * planetary system, output 2.5×–9× of the parent's rendered radius. When the
    * system is selected, the outer ring doubles out for the detail view
    * (spec §13: "enlarge and clarify its local moon system").
+   *
+   * This maps an orbit's CHARACTERISTIC radius (its semi-major axis) — it is
+   * NOT a per-vertex radius remap. Feeding r(θ) through it vertex-by-vertex
+   * bent every moon orbit into a cardioid-family curve (t_5a546f13 diagnosis,
+   * docs/orbit-shape-diagnosis.md): the log is grossly nonlinear over a
+   * km-scale shifted range while θ stayed untouched. Draw orbits through
+   * mapSatelliteOrbitRadius; this scalar form stays for size ordering and
+   * camera framing (main.ts focusFrameFor system extent).
    */
   mapSatelliteDistance(
     distanceKm: number,
@@ -230,6 +238,58 @@ export class ScaleManager {
     const shiftedMax = Math.max(1, maxDistanceKm - minDistanceKm);
     const normalized = Math.log1p(shifted) / Math.log1p(shiftedMax);
     return minR + normalized * (maxR - minR);
+  }
+
+  /**
+   * Uniform render scale for ONE satellite orbit (render units per km).
+   * Every radius of the orbit — at every angle θ — shares this single
+   * constant, so the drawn curve is a mathematically SIMILAR ellipse: θ,
+   * a:b = 1 : √(1−e²) and the eccentricity are preserved exactly (uniform
+   * scaling about the focus maps a conic to the same-e conic). The orbit's
+   * SIZE rides the log band via mapSatelliteDistance(a); the drawn apoapsis
+   * is additionally capped at the band ceiling so no orbit exceeds 9×
+   * (× systemMoonBoost while selected) even at large real e.
+   * Shared by OrbitRenderer and CelestialBody — line ≡ body by construction.
+   */
+  satelliteOrbitScale(
+    semiMajorAxisKm: number,
+    eccentricity: number,
+    minDistanceKm: number,
+    maxDistanceKm: number,
+    parentRenderRadius: number,
+  ): number {
+    const a = Math.max(semiMajorAxisKm, 1e-9);
+    const e = THREE.MathUtils.clamp(eccentricity, 0, 0.999);
+    const maxR =
+      parentRenderRadius * 9 * (this.systemBoostActive ? this.cfg.systemMoonBoost : 1);
+    const size = this.mapSatelliteDistance(a, minDistanceKm, maxDistanceKm, parentRenderRadius);
+    return Math.min(size / a, maxR / (a * (1 + e)));
+  }
+
+  /**
+   * Real parent-local orbit radius (km) → render units. THE shared orbit
+   * path for moons: orbit-line vertices (OrbitRenderer.isMoon branch) and
+   * the animated body (CelestialBody.moonRenderDistance) call this, so the
+   * moon always rides its drawn line in every distance mode, and the line
+   * is a closed similar ellipse, never a cardioid (t_d17906bf).
+   */
+  mapSatelliteOrbitRadius(
+    radiusKm: number,
+    semiMajorAxisKm: number,
+    eccentricity: number,
+    minDistanceKm: number,
+    maxDistanceKm: number,
+    parentRenderRadius: number,
+  ): number {
+    return (
+      this.satelliteOrbitScale(
+        semiMajorAxisKm,
+        eccentricity,
+        minDistanceKm,
+        maxDistanceKm,
+        parentRenderRadius,
+      ) * radiusKm
+    );
   }
 
   /**
@@ -332,7 +392,16 @@ export class ScaleManager {
       const p = ellipseOf(body, simDays); // km units for moons
       const range = moonRange ?? { minKm: p.x, maxKm: Math.abs(p.x) + 1 };
       return {
-        units: this.mapSatelliteDistance(p.r, range.minKm, range.maxKm, parentRenderRadius),
+        // Same shared orbit mapper as the rendered position → the number in
+        // the panel is the distance the body actually sits at (spec §10).
+        units: this.mapSatelliteOrbitRadius(
+          p.r,
+          body.semiMajorAxis ?? 0,
+          body.eccentricity ?? 0,
+          range.minKm,
+          range.maxKm,
+          parentRenderRadius,
+        ),
         fromLabelKo: `${getBodyById(body.parentId ?? "")?.nameKo ?? "?"} 기준 (parent-local)`,
       };
     }

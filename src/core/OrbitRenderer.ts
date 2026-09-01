@@ -46,9 +46,10 @@ export class OrbitRenderer {
    * - heliocentric: ScaleManager.mapHeliocentricPlanePoint — identical math
    *   to the body position update, so the animated planet always rides its
    *   drawn line in log / linear / focus modes alike.
-   * In focus mode `anchor` moves with the anchor each sim-day, so the whole
-   * family of lines is re-sampled (cheap: buffer reuse) — spec §13 says to
-   * interpolate, not switch abruptly; the app drives refresh cadence.
+   * FOCUS MODE: every vertex maps through the SAME compress(p − anchor) the
+   * body position uses, so each planet always rides its own drawn line even
+   * though the anchor-relative compression distorts ellipse shape (spec §4:
+   * local scale centered on the selected system; consistency over exactness).
    */
   refresh(
     scale: ScaleManager,
@@ -74,8 +75,8 @@ export class OrbitRenderer {
     this.lastSignature = signature;
 
     const isAnchorLine = !isMoon && scale.focusActive && !!anchor && d.id === scale.focusAnchorId;
-    // The anchor IS the centre of the focus view: its own orbit collapses to
-    // a point (position = compress(p − p) = 0 at every t) — hide the line.
+    // The anchor sits at the focus-view centre; its own compressed orbit
+    // would swirl around the origin meaninglessly — hide its line.
     this.hiddenByFocus = isAnchorLine;
     if (isAnchorLine) {
       this.line.visible = false;
@@ -95,7 +96,18 @@ export class OrbitRenderer {
       let x: number;
       let cz: number;
       if (isMoon && moonRange) {
-        const dist = scale.mapSatelliteDistance(pr, moonRange.minKm, moonRange.maxKm, parentRenderRadius);
+        // Shared orbit mapper (ScaleManager.mapSatelliteOrbitRadius): ONE
+        // uniform scale per orbit, so θ and the real a:b ratio survive and
+        // the line is a closed similar ellipse (t_d17906bf) — identical to
+        // CelestialBody.moonRenderDistance, so the moon rides its line.
+        const dist = scale.mapSatelliteOrbitRadius(
+          pr,
+          a,
+          e,
+          moonRange.minKm,
+          moonRange.maxKm,
+          parentRenderRadius,
+        );
         const th = Math.atan2(py, px);
         x = dist * Math.cos(th);
         cz = dist * Math.sin(th);

@@ -133,9 +133,21 @@ export class CelestialBody {
     this.applySpin(simDays);
   }
 
+  /**
+   * Parent-local render distance for a real radius (km) on THIS moon's orbit.
+   * Delegates to the shared orbit mapper so the body rides its drawn line
+   * exactly (OrbitRenderer.isMoon branch calls the same function).
+   */
   moonRenderDistance(distanceKm: number, scale: ScaleManager): number {
     const range = this.moonDistanceRange ?? { minKm: distanceKm, maxKm: distanceKm + 1 };
-    return scale.mapSatelliteDistance(distanceKm, range.minKm, range.maxKm, this.parentRenderRadius);
+    return scale.mapSatelliteOrbitRadius(
+      distanceKm,
+      this.data.semiMajorAxis ?? 0,
+      this.data.eccentricity ?? 0,
+      range.minKm,
+      range.maxKm,
+      this.parentRenderRadius,
+    );
   }
 
   applyRadius(scale: ScaleManager): void {

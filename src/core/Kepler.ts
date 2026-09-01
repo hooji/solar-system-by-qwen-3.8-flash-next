@@ -43,7 +43,7 @@ export function meanAnomalyRad(
 ): number {
   const TWO_PI_ = Math.PI * 2;
   const P = Math.max(periodDays, 1e-9);
-  return ((((simDays / P) * TWO_PI_ + phaseRad) % TWO_PI_) + TWO_PI_) % TWO_PI_;
+  return (((simDays / P) * TWO_PI_ + phaseRad) % TWO_PI_ + TWO_PI_) % TWO_PI_;
 }
 
 /**
