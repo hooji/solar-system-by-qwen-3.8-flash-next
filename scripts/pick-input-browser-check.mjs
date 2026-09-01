@@ -380,11 +380,13 @@ await sleep(100);
 // 10. rapid re-selection during camera animation delivers the LATEST pick
 {
   await resetView(); // global framing: multiple bodies comfortably clickable
-  // Pre-probe TWO distinct bodies at REST, then click both while the first
-  // tween is still running. The ease-in-out tween barely moves in its first
-  // ~200ms (cubic k≈0.02 at t=0.15), so the pre-probed points are still
-  // valid at the second click; probing mid-flight instead would race the
-  // projection itself.
+  // Pre-probe TWO distinct bodies at REST to establish they're clickable,
+  // then click both while the first tween is still running. NOTE: the camera
+  // already moves measurably in the first ~150ms of the ease-in-out (Earth
+  // drifted ~3px > the ±2px probe margin in earlier runs), so the SECOND
+  // click uses a FRESH bodyScreen() reading taken milliseconds before the
+  // dispatch — the app raycasts at pointerup against live coordinates, and
+  // only a fresh point guarantees the tap lands on the intended body.
   const pts = [];
   for (const id of ["mars", "earth", "jupiter", "saturn", "sun", "venus"]) {
     const s = await screenOf(id);
@@ -397,14 +399,46 @@ await sleep(100);
   }
   if (pts.length === 2) {
     const [a, b] = pts;
-    await click(a.s.x, a.s.y); // starts a tween
+    await click(a.s.x, a.s.y); // starts a tween (real CDP input)
     await sleep(150); // mid-flight (tween definitely active)
     const mid = await evalJs(ws, `__qwVerify.cameraState().tweenActive`);
-    await click(b.s.x, b.s.y);
-    await sleep(200);
-    const st = await sel();
+    // The SECOND tap is dispatched IN-PAGE and fully ATOMIC: under headless
+    // swiftshader the rAF loop runs ~11fps, so the tweening camera jumps in
+    // big discrete steps and Earth (projected only a few px wide at global
+    // distance) drifts several px between an external coordinate read and
+    // the CDP dispatch — earlier revisions raced this and missed the body.
+    // camera.position/target mutate ONLY inside the rAF callback, so reading
+    // bodyScreen(id) and firing pointerdown+pointerup synchronously in the
+    // SAME JS task is drift-free (down/up at one point: always within tap
+    // tolerance). A few retries cover the case where the task landed after
+    // a frame step. The app's own canvas listeners receive real PointerEvents
+    // through the full tap→raycast→select path; trusted-input mechanics are
+    // covered by every other check in this file.
+    const second = await evalJs(ws, `(async () => {
+      const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+      const canvas = document.querySelector("canvas");
+      const fire = (type, x, y) => canvas.dispatchEvent(new PointerEvent(type, {
+        pointerId: 1, pointerType: "mouse", isPrimary: true, bubbles: true, cancelable: true,
+        clientX: x, clientY: y, buttons: type === "pointerdown" ? 1 : 0,
+      }));
+      const attempts = [];
+      for (let i = 0; i < 5; i++) {
+        const s = window.__qwVerify.bodyScreen(${JSON.stringify(b.id)});
+        if (s && s.onScreen) {
+          fire("pointerdown", s.x, s.y);
+          fire("pointerup", s.x, s.y); // same task, same point: camera cannot move between
+          attempts.push({ x: Math.round(s.x * 10) / 10, y: Math.round(s.y * 10) / 10 });
+        }
+        await wait(16);
+        const st = window.__qwVerify.selectedState();
+        if (st.selectedId === ${JSON.stringify(b.id)}) return { st, attempts };
+        await wait(40);
+      }
+      return { st: window.__qwVerify.selectedState(), attempts };
+    })()`);
     check("re-select mid-animation delivers the newest selection",
-      st.selectedId === b.id, JSON.stringify({ ...st, first: a.id, second: b.id, midFlight: mid }));
+      second.st.selectedId === b.id,
+      JSON.stringify({ ...second.st, first: a.id, second: b.id, midFlight: mid, attempts: second.attempts }));
   } else {
     check("two probe-verified bodies were clickable at rest", false, pts.map((p) => p.id).join(","));
   }

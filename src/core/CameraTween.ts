@@ -42,9 +42,6 @@ export const CAMERA_TWEEN_SECONDS = 1.0;
  */
 export const SYSTEM_HEADROOM_FACTOR = 2.2;
 
-/** The Sun has no moon system: frame its disc with its own headroom. */
-export const SUN_HEADROOM_FACTOR = 4.5;
-
 /** Distance of the global (no-selection) view — initial Sun→Pluto framing. */
 export const GLOBAL_VIEW_DISTANCE = 340;
 
@@ -87,20 +84,20 @@ export function focusExtent(input: FocusInput): number {
  * The focus-distance mapping (camera and focus-anchor scale share this ONE
  * rule — selectionFor picks WHAT to focus, this decides HOW FAR):
  *  - global view (null)     : fixed distance framing Sun→Pluto (spec §9).
- *  - star (Sun selected)    : effective radius × SUN_HEADROOM_FACTOR.
+ *  - star (Sun selected)    : SAME global framing — spec §9 "Selecting the
+ *                             Sun: show the complete Solar System" (the Sun
+ *                             sits at the scene origin, so the global
+ *                             distance centred on it frames Sun→Pluto).
  *  - planet / dwarf / moon  : max(parent-local system extent, effective
  *                             radius) × SYSTEM_HEADROOM_FACTOR.
  * Never throws, never returns NaN or a non-positive value: degenerate
  * inputs land on MIN_FOCUS_DISTANCE / GLOBAL_VIEW_DISTANCE.
  */
 export function cameraFocusDistance(input: FocusInput | null): number {
-  if (!input || input.type === null) return finiteOr(GLOBAL_VIEW_DISTANCE, 1);
-  let dist: number;
-  if (input.type === "star") {
-    dist = positiveOr(input.effectiveRenderRadius, 1) * SUN_HEADROOM_FACTOR;
-  } else {
-    dist = focusExtent(input) * SYSTEM_HEADROOM_FACTOR;
+  if (!input || input.type === null || input.type === "star") {
+    return finiteOr(GLOBAL_VIEW_DISTANCE, 1);
   }
+  const dist = focusExtent(input) * SYSTEM_HEADROOM_FACTOR;
   if (!Number.isFinite(dist)) return GLOBAL_VIEW_DISTANCE;
   return Math.max(dist, MIN_FOCUS_DISTANCE);
 }

@@ -16,7 +16,6 @@ const {
   GLOBAL_VIEW_DISTANCE,
   MIN_FOCUS_DISTANCE,
   SYSTEM_HEADROOM_FACTOR,
-  SUN_HEADROOM_FACTOR,
   CAMERA_TWEEN_SECONDS,
   easeInOut,
 } = camera;
@@ -53,9 +52,9 @@ t("null selection → fixed global framing distance", () => {
   );
 });
 
-t("star frames by effective radius × sun headroom", () => {
+t("star (Sun) selection frames the COMPLETE solar system — spec §9", () => {
   const d = cameraFocusDistance({ type: "star", rawRenderRadius: 8, effectiveRenderRadius: 8, systemBoosted: false, systemExtent: 0 });
-  assert.equal(d, 8 * SUN_HEADROOM_FACTOR);
+  assert.equal(d, GLOBAL_VIEW_DISTANCE);
 });
 
 t("moon frames its PARENT-LOCAL system extent, not its own dot", () => {

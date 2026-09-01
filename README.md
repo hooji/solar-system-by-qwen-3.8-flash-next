@@ -152,7 +152,9 @@ src/
   `selectionFor`로 파생된 선택 상태를 적용한 **뒤**에 `focusFrameFor(id)`로
   렌더 단위 입력(원래/부스팅 반지름 분리, parent-local 위성의 모계 렌더 링
   범위, 링 outer 반지름)을 만들어 `core/CameraTween.cameraFocusDistance()`에
-  전달한다. 카메라와 focus 거리 스케일 매핑이 같은 숫자를 읽으므로 서로
+  전달한다. 매핑: 행성·위성=max(모계 범위, 실효 반지름)×2.2, **항성(태양)
+  선택=전역 거리 그대로**(명세 §9 "태양 선택 시 전체 태양계", 태양은 원점이라
+  같은 화면), 미선택=340. 카메라와 focus 거리 스케일 매핑이 같은 숫자를 읽으므로 서로
   어긋날 수 없고, 거리 모드 전환·리셋도 같은 경유(`onDistanceMode`/
   `__qwVerify.setDistanceMode` → `reframeCamera`). 비행은 `CameraTween`이
   소유: 현재 카메라 상태(controls.target/camera.position)에서 시작해 시선
