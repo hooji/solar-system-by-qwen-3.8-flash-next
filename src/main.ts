@@ -31,6 +31,15 @@ import { InfoPanel } from "./ui/InfoPanel";
 import { ControlPanel } from "./ui/ControlPanel";
 import { Labels } from "./ui/Labels";
 import { OverlayManager } from "./ui/OverlayManager";
+import {
+  LANGS,
+  getLang,
+  onLangChange,
+  restoreLang,
+  setLang,
+  t,
+  type Lang,
+} from "./ui/i18n";
 import { BODY_SELECTED_EVENT } from "./ui/overlayState";
 
 // Listener accounting (integration t_92052608, VITE_VERIFY builds ONLY —
@@ -136,20 +145,54 @@ const info = new InfoPanel(viewport, scale, (b) => {
 // Live real distances in the panel read the same sim clock as the scene.
 info.setSimDaysProvider(() => clock.simDays);
 
-// Header + disclaimer (spec §14).
+// Header + disclaimer (spec §14). Strings and the language state come from
+// ui/i18n.ts (foundation t_00139ab5): stored choice restored BEFORE the
+// header builds, header text rendered through t(), and a keyboard-operable
+// EN/한국어 toggle exposes the current state via aria-pressed.
+restoreLang();
 const header = document.createElement("header");
 header.className = "panel header";
-header.innerHTML =
-  "<h1>로그 태양계 · Logarithmic Solar System</h1>" +
-  '<p class="sub">실제 천문 데이터를 로그 스케일로 압축한 시각화입니다.</p>';
+const headerTitle = document.createElement("h1");
+const headerSub = document.createElement("p");
+headerSub.className = "sub";
+const langGroup = document.createElement("div");
+langGroup.className = "row lang-toggle";
+langGroup.setAttribute("role", "group");
+const langBtns = new Map<Lang, HTMLButtonElement>();
+for (const l of LANGS) {
+  const b = document.createElement("button");
+  b.type = "button";
+  b.dataset.lang = l;
+  // `lang.${l}` is LangLabelKey ⊆ MessageKey — typed, no cast; explicit `l`
+  // keeps each label in its OWN language ("한국어" / "EN") in both modes.
+  b.textContent = t(`lang.${l}`, undefined, l);
+  b.addEventListener("click", () => setLang(l));
+  langBtns.set(l, b);
+  langGroup.appendChild(b);
+}
+function renderHeader(lang: Lang): void {
+  headerTitle.textContent = t("header.title", undefined, lang);
+  headerSub.textContent = t("header.subtitle", undefined, lang);
+  langGroup.setAttribute("aria-label", t("header.langGroup", undefined, lang));
+  for (const [l, b] of langBtns) b.setAttribute("aria-pressed", String(l === lang));
+  document.documentElement.lang = lang;
+}
+renderHeader(getLang());
+header.append(headerTitle, headerSub, langGroup);
 viewport.appendChild(header);
 overlay.register("header", header);
+// Panels re-render from t() on language change (the ONE subscription path —
+// later localized panels reuse onLangChange instead of caching strings).
+const offLangHeader = onLangChange(renderHeader);
 
 const disclaimer = document.createElement("aside");
 disclaimer.className = "panel disclaimer";
-disclaimer.textContent =
-  "이 시각화는 실제 천문 데이터를 사용하지만, 궤도 거리는 로그 스케일로 압축되고 천체 크기는 화면 가독성을 위해 과장됩니다. 렌더 크기와 렌더 거리는 하나의 동일한 물리 스케일을 공유하지 않습니다.";
+const renderDisclaimer = (lang: Lang): void => {
+  disclaimer.textContent = t("disclaimer.text", undefined, lang);
+};
+renderDisclaimer(getLang());
 viewport.appendChild(disclaimer);
+const offLangDisclaimer = onLangChange(renderDisclaimer);
 
 // --- camera focus tween (ease-in-out, spec §9; task t_31402ac4) -------------
 // The flight itself lives in core/CameraTween.ts. ONE path re-frames the
@@ -448,6 +491,8 @@ function teardownAll(): void {
   controls.dispose(); // OrbitControls' pointer/wheel listeners on the canvas
   window.removeEventListener("resize", onResize);
   window.removeEventListener("beforeunload", onTeardown);
+  offLangHeader(); // language subscribers go with the panels (i18n t_00139ab5)
+  offLangDisclaimer();
   overlay.dispose();
   solar.dispose();
   renderer.dispose();

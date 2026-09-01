@@ -34,6 +34,10 @@ Node 20.19+ / 22.12+ 필요 (Vite 8 요구사항).
 
 ## 패널 표시/숨김과 단축키
 
+- 헤더 좌 하단의 `EN / 한국어` 토글로 패널 언어를 전환한다. 선택은
+  `localStorage["qwsolar.language.v1"]`에 저장되어 새로고침 후 복원되고,
+  저장값이 없거나 잘못되었거나 저장소 접근이 실패해도 한국어로 안전 동작한다.
+  (기반 t_00139ab5 — 한·영 키 대칭은 `npm test`의 i18n-parity 검사가 강제.)
 - 각 패널(헤더·제어·인포) 우 상단의 접기 버튼으로 개별 숨김/표시.
 - `H` 키: 화면의 모든 UI 패널을 한 번에 숨기거나(스크린샷용) 이전 레이아웃대로
   되돌린다. 하단 독(dock)의 개별 복구 칩(`제어` 등)으로 하나씩 되살릴 수도 있다.
@@ -135,12 +139,23 @@ src/
   ui/ControlPanel.ts           # 제어 HUD
   ui/InfoPanel.ts              # 툴팁 + 인포 (실값/렌더값 분리 표시)
   ui/Labels.ts                 # CSS2D 한/영 이름표
+  ui/i18n.ts                   # 한·영 키 대칭 사전·언어 상태·localStorage (t_00139ab5)
   ui/overlayState.ts           # 오버레이 토글 순수 상태·localStorage (t_30700e13)
   ui/OverlayManager.ts         # 접기 버튼·dock·H 단축키·ARIA·선택 이벤트 (t_30700e13)
 ```
 
 ## 후속 작업자를 위한 계약
 
+- 패널 언어(t_00139ab5): `ui/i18n.ts`가 단일 언어 기반. 사전 키 집합의 참은
+  한국어(`KO`)이고 영어는 `Record<MessageKey,string>`이라 결함/추가 키는
+  컴파일 오류, 런타임 대칭 검사는 `node scripts/i18n-parity.test.mjs`(npm
+  test 체인)가 강제한다. 사용자 노출 문자열은 `t(key, params?, lang?)`로만
+  조회하고(누락 키는 `?key?` 가시 플레이스홀더 — undefined/빈값 절대 노출
+  안 됨), 패널은 `onLangChange(fn)` 구독으로 다시 렌더링한다(문자열 캐싱
+  금지). 현재 언어는 `getLang()`/`setLang()`/`toggleLang()`, 기본 한국어,
+  선택은 `localStorage["qwsolar.language.v1"]`(값 "ko"/"en" 외 전부 한국어
+  폴백, 저장소 실패도 동일). 실제 브라우저 검증:
+  `node scripts/language-browser-check.mjs` (headless Chrome + CDP, 22 항목).
 - 천체 식별·선택 상태(t_766b495f): `core/bodyIdentity.ts`가 유일한 식별/상태
   계약. 천체 ID는 `CelestialBodyData.id`(부모는 `parentId`)이고, 씬 노드는
   `userData.bodyId`(mesh·group·링 모두)로만 자신을 advertised한다 —

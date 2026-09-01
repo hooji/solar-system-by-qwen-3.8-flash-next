@@ -40,6 +40,20 @@ html, body {
 }
 .header h1 { margin: 0 0 2px; font-size: 16px; }
 .header .sub { color: var(--text-dim); font-size: 11px; }
+/* EN/한국어 language toggle in the header (i18n foundation t_00139ab5). */
+.header .lang-toggle { display: flex; gap: 4px; margin-top: 6px; }
+.header .lang-toggle button {
+  background: rgba(126, 162, 255, 0.14);
+  border: 1px solid var(--panel-border);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 2px 8px;
+  cursor: pointer;
+  font-size: 11px;
+}
+.header .lang-toggle button:hover { background: rgba(126, 162, 255, 0.3); }
+.header .lang-toggle button[aria-pressed="true"] { outline: 1px solid var(--accent); }
+.header .lang-toggle button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 .control-panel { top: 12px; right: 12px; width: 210px; }
 .control-panel .row { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin: 6px 0; }
