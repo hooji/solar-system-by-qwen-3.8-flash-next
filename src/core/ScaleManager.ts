@@ -21,6 +21,7 @@ import {
   maxHeliocentricDistanceAU,
   type CelestialBodyData,
 } from "../data/solarSystemData";
+import { t, type Lang } from "../ui/i18n";
 import { ellipsePlanePosition } from "./Kepler";
 import { systemParentOf } from "./bodyIdentity";
 
@@ -346,24 +347,26 @@ export class ScaleManager {
 
   /** Current scale-mode explanation for UI/tooltip (spec §4, §10). */
   get scaleMode(): string {
-    return this.distanceModeLabelKo();
+    return this.distanceModeLabel();
   }
 
-  distanceModeLabelKo(): string {
-    if (this.distanceMode === "log") return "로그 거리 스케일 (log scale)";
-    if (this.distanceMode === "linear") return "선형 거리 스케일 (linear scale)";
+  /** Localised distance-mode label (t_292b0645); default = current language. */
+  distanceModeLabel(lang?: Lang): string {
+    if (this.distanceMode === "log") return t("scale.dist.log", undefined, lang);
+    if (this.distanceMode === "linear") return t("scale.dist.linear", undefined, lang);
     const anchor = this.focusAnchorId ? getBodyById(this.focusAnchorId) : undefined;
     return anchor
-      ? `포커스 스케일 — ${anchor.nameKo} 중심 (focus scale)`
-      : "포커스 스케일 — 태양 중심";
+      ? t("scale.dist.focus", { name: anchor.nameKo }, lang)
+      : t("scale.dist.focusSun", undefined, lang);
   }
 
-  sizeModeLabelKo(): string {
+  /** Localised size-mode label (t_292b0645); default = current language. */
+  sizeModeLabel(lang?: Lang): string {
     return this.sizeMode === "enhanced"
-      ? "가시성 향상 크기 (enhanced)"
+      ? t("scale.size.enhanced", undefined, lang)
       : this.sizeMode === "relative"
-        ? "상대 크기 강조 (relative)"
-        : "균일 마커 (uniform)";
+        ? t("scale.size.relative", undefined, lang)
+        : t("scale.size.uniform", undefined, lang);
   }
 
   /** Helper for info panels: current render radius of a body. */
@@ -384,10 +387,10 @@ export class ScaleManager {
     simDays: number,
     moonRange: { minKm: number; maxKm: number } | null,
     parentRenderRadius: number,
-  ): { units: number; fromLabelKo: string } | undefined {
+  ): { units: number; fromLabel: string } | undefined {
     const body = SOLAR_SYSTEM.find((b) => b.id === bodyId);
     if (!body) return undefined;
-    if (body.type === "star") return { units: 0, fromLabelKo: "—" };
+    if (body.type === "star") return { units: 0, fromLabel: "—" };
     if (body.type === "moon") {
       const p = ellipseOf(body, simDays); // km units for moons
       const range = moonRange ?? { minKm: p.x, maxKm: Math.abs(p.x) + 1 };
@@ -402,16 +405,18 @@ export class ScaleManager {
           range.maxKm,
           parentRenderRadius,
         ),
-        fromLabelKo: `${getBodyById(body.parentId ?? "")?.nameKo ?? "?"} 기준 (parent-local)`,
+        fromLabel: t("scale.from.parent", {
+          name: getBodyById(body.parentId ?? "")?.nameKo ?? "?",
+        }),
       };
     }
     const p = ellipseOf(body, simDays);
     const out = { x: 0, cz: 0 };
     this.mapHeliocentricPlanePoint(p, this.anchorPlanePositionAU(simDays), out);
     const from = this.focusActive
-      ? `기준 ${getBodyById(this.focusAnchorId ?? "")?.nameKo ?? "?"} (focus)`
-      : "태양 기준";
-    return { units: Math.hypot(out.x, out.cz), fromLabelKo: from };
+      ? t("scale.from.focus", { name: getBodyById(this.focusAnchorId ?? "")?.nameKo ?? "?" })
+      : t("scale.from.sun");
+    return { units: Math.hypot(out.x, out.cz), fromLabel: from };
   }
 }
 

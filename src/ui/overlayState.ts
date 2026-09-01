@@ -4,16 +4,25 @@
  * interactions between per-panel state and the global hide state stay
  * consistent and unit-testable. Persistence key + parse-guarded load/save
  * for localStorage live here too.
+ *
+ * Panel captions are i18n KEYS (task t_292b0645), never translated strings —
+ * the DOM side resolves them through t() against the live language.
  */
+import type { MessageKey } from "./i18n";
 
 export const PANEL_IDS = ["header", "control", "info"] as const;
 export type PanelId = (typeof PANEL_IDS)[number];
 
-export const PANEL_LABELS_KO: Record<PanelId, string> = {
-  header: "헤더",
-  control: "제어",
-  info: "인포",
+/** Compile-checked: every panel id has exactly one `panel.<id>` key. */
+export const PANEL_LABEL_KEYS: Record<PanelId, `panel.${PanelId}`> = {
+  header: "panel.header",
+  control: "panel.control",
+  info: "panel.info",
 };
+
+/** Compile-time proof the derived keys are real dictionary keys. */
+const _PANEL_KEYS_ARE_MESSAGES: Record<PanelId, MessageKey> = PANEL_LABEL_KEYS;
+void _PANEL_KEYS_ARE_MESSAGES;
 
 export interface OverlayState {
   /** One hotkey (H) / global button flips this; individual flags are kept. */

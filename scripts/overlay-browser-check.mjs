@@ -77,6 +77,16 @@ await send(ws, "Runtime.enable");
 await send(ws, "Log.enable");
 await sleep(3500); // boot + first frames
 
+// Pin the baseline to Korean: this check asserts the KO captions ("패널
+// 숨김", chip "제어", …). A previous run (or the language check) may have
+// persisted EN under qwsolar.language.v1 — panels localize from it (t_292b0645),
+// so clear it and reload before asserting. Language itself is covered by
+// language-browser-check.mjs; here it must simply not skew the captions.
+await evalJs(ws, `localStorage.removeItem("qwsolar.language.v1"); localStorage.getItem("qwsolar.overlay.v1") || "reset"`);
+await evalJs(ws, `localStorage.removeItem("qwsolar.overlay.v1")`);
+await send(ws, "Page.navigate", { url: process.env.QW_URL || "http://localhost:5212/" });
+await sleep(3500);
+
 const vis = `(id) => {
   const el = document.querySelector('[data-panel="'+id+'"]');
   if (!el) return {missing:true};

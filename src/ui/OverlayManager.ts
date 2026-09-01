@@ -8,7 +8,7 @@
 import {
   BODY_SELECTED_EVENT,
   PANEL_IDS,
-  PANEL_LABELS_KO,
+  PANEL_LABEL_KEYS,
   type OverlayState,
   type PanelId,
   effectiveVisible,
@@ -20,6 +20,7 @@ import {
   toggleAll,
   togglePanel,
 } from "./overlayState";
+import { onLangChange, t } from "./i18n";
 
 interface Registration {
   el: HTMLElement;
@@ -33,10 +34,11 @@ export class OverlayManager {
   private readonly globalBtn: HTMLButtonElement;
   private readonly chipWrap: HTMLElement;
   private readonly restoreBtn: HTMLButtonElement;
+  private readonly offLang: () => void;
   private readonly onKeyDown = (ev: KeyboardEvent): void => {
     if (ev.key.toLowerCase() !== "h" || ev.metaKey || ev.ctrlKey || ev.altKey) return;
-    const t = ev.target as HTMLElement | null;
-    if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT")) return;
+    const target = ev.target as HTMLElement | null;
+    if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT")) return;
     ev.preventDefault();
     this.set(toggleAll(this.state));
   };
@@ -44,7 +46,6 @@ export class OverlayManager {
   constructor(container: HTMLElement) {
     this.dock = document.createElement("nav");
     this.dock.className = "overlay-dock panel-lite";
-    this.dock.setAttribute("aria-label", "오버레이 패널 복구");
 
     this.globalBtn = document.createElement("button");
     this.globalBtn.type = "button";
@@ -59,13 +60,16 @@ export class OverlayManager {
     this.restoreBtn = document.createElement("button");
     this.restoreBtn.type = "button";
     this.restoreBtn.className = "dock-btn dock-restore";
-    this.restoreBtn.textContent = "모두 복구";
     this.restoreBtn.addEventListener("click", () => this.set(restoreAll(this.state)));
     this.dock.appendChild(this.restoreBtn);
 
     container.appendChild(this.dock);
     window.addEventListener("keydown", this.onKeyDown);
     window.addEventListener(BODY_SELECTED_EVENT, this.onBodySelectedEvent);
+    // Language change re-labels dock buttons, chips and every aria name
+    // (t_292b0645) — labels are derived in apply(), never cached.
+    this.offLang = onLangChange(() => this.apply(false));
+    this.apply(false);
     // Test/debug call site for the selection contract (see README §overlays).
     (window as unknown as { __qwOverlay?: OverlayManager }).__qwOverlay = this;
   }
@@ -89,6 +93,7 @@ export class OverlayManager {
   dispose(): void {
     window.removeEventListener("keydown", this.onKeyDown);
     window.removeEventListener(BODY_SELECTED_EVENT, this.onBodySelectedEvent);
+    this.offLang();
     this.dock.remove();
     for (const { el, collapseBtn } of this.panels.values()) {
       collapseBtn.remove();
@@ -131,6 +136,9 @@ export class OverlayManager {
 
   private apply(animated: boolean): void {
     if (!animated) document.body.classList.add("no-anim");
+    // Every string below resolves through t() against the CURRENT language —
+    // a language change re-runs apply() via onLangChange, so nothing caches.
+    this.dock.setAttribute("aria-label", t("overlay.dockAria"));
     for (const id of PANEL_IDS) {
       const reg = this.panels.get(id);
       if (!reg) continue;
@@ -140,18 +148,20 @@ export class OverlayManager {
       reg.el.setAttribute("aria-hidden", String(!vis));
       reg.collapseBtn.setAttribute(
         "aria-label",
-        `${PANEL_LABELS_KO[id]} 패널 ${vis ? "숨기기" : "표시"}`,
+        t("overlay.collapseAria", {
+          label: t(PANEL_LABEL_KEYS[id]),
+          verb: t(vis ? "overlay.verbHide" : "overlay.verbShow"),
+        }),
       );
       reg.collapseBtn.setAttribute("aria-expanded", String(vis));
       reg.collapseBtn.textContent = vis ? "×" : "·";
     }
 
     const anyHidden = PANEL_IDS.some((id) => !effectiveVisible(this.state, id));
-    this.globalBtn.textContent = this.state.collapsedAll
-      ? "패널 표시"
-      : "패널 숨김";
-    this.globalBtn.title = "모든 오버레이 숨김/표시 (단축키 H)";
+    this.globalBtn.textContent = t(this.state.collapsedAll ? "overlay.showAll" : "overlay.hideAll");
+    this.globalBtn.title = t("overlay.globalTitle");
     this.globalBtn.setAttribute("aria-pressed", String(!this.state.collapsedAll));
+    this.restoreBtn.textContent = t("overlay.restore");
 
     // Restore affordance: one chip per hidden panel, always reachable in the dock.
     this.chipWrap.replaceChildren(
@@ -159,8 +169,14 @@ export class OverlayManager {
         const chip = document.createElement("button");
         chip.type = "button";
         chip.className = "dock-btn dock-chip";
-        chip.textContent = PANEL_LABELS_KO[id];
-        chip.setAttribute("aria-label", `${PANEL_LABELS_KO[id]} 패널 표시`);
+        chip.textContent = t(PANEL_LABEL_KEYS[id]);
+        chip.setAttribute(
+          "aria-label",
+          t("overlay.collapseAria", {
+            label: t(PANEL_LABEL_KEYS[id]),
+            verb: t("overlay.verbShow"),
+          }),
+        );
         chip.addEventListener("click", () => this.set(togglePanel(this.state, id)));
         return chip;
       }),

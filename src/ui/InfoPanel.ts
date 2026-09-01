@@ -9,6 +9,11 @@
  * `refresh()` re-renders the SAME selection against the current sim time so
  * moving bodies and changing render modes update the panel without touching
  * DOM state directly (no divergent display states).
+ *
+ * Localisation (task t_292b0645): row labels, section separators, type names
+ * and the aria-label resolve through ui/i18n t() at render time. The frame
+ * loop refreshes the visible selection ≥5×/s (and language changes trigger a
+ * re-render directly), so switching EN/한국어 re-labels the panel live.
  */
 import type { CelestialBodyData } from "../data/solarSystemData";
 import { getBodyById, getChildrenOf } from "../data/solarSystemData";
@@ -23,18 +28,21 @@ import {
   formatPeriodDays,
   formatRotationHours,
 } from "./format";
+import { onLangChange, t, type Lang, type MessageKey } from "./i18n";
 
-const TYPE_KO: Record<CelestialBodyData["type"], string> = {
-  star: "항성",
-  planet: "행성",
-  "dwarf-planet": "왜소행성",
-  moon: "위성",
+const TYPE_KEYS: Record<CelestialBodyData["type"], MessageKey> = {
+  star: "type.star",
+  planet: "type.planet",
+  "dwarf-planet": "type.dwarf-planet",
+  moon: "type.moon",
 };
 
 /** Section headers inside the panel — real data vs screen-layout values. */
-const SEP_REAL = "실제 천문 데이터 (real astronomical data)";
-const SEP_RENDER = "화면 렌더 값 — 배치용, 실데이터 아님 (render values)";
-const SEP_MODE = "화면 표현 (display modes)";
+const SEP_KEYS = {
+  real: "info.sep.real",
+  render: "info.sep.render",
+  mode: "info.sep.mode",
+} as const;
 
 export class InfoPanel {
   private readonly root: HTMLElement;
@@ -42,8 +50,9 @@ export class InfoPanel {
    *  (root carries the collapse button overlay.register injects). */
   private readonly content: HTMLElement;
   private readonly tooltip: HTMLElement;
-  /** Current selection rendered into the panel; null = nothing shown. */
-  private selectedId: string | null = null;
+  /** Last hovered body — lets a language change re-label a visible tooltip. */
+  private tooltipBody: CelestialBodyData | null = null;
+  private readonly offLang: () => void;
 
   constructor(
     container: HTMLElement,
@@ -51,12 +60,11 @@ export class InfoPanel {
     private readonly renderOf: (body: CelestialBodyData) => {
       distance: number;
       radius: number;
-      fromLabelKo: string;
+      fromLabel: string;
     },
   ) {
     this.root = document.createElement("section");
     this.root.className = "panel info-panel";
-    this.root.setAttribute("aria-label", "천체 정보");
     this.root.hidden = true;
     this.content = document.createElement("div");
     this.content.className = "info-content";
@@ -67,6 +75,23 @@ export class InfoPanel {
     this.tooltip.className = "tooltip";
     this.tooltip.hidden = true;
     container.appendChild(this.tooltip);
+
+    // Live re-label on language change: the visible selection re-renders and
+    // a visible tooltip re-labels; hidden hosts simply pick the new language
+    // up on their next showBody/render (nothing is cached).
+    this.offLang = onLangChange(() => {
+      this.root.setAttribute("aria-label", t("info.aria"));
+      this.refresh();
+      if (this.tooltipBody && !this.tooltip.hidden) {
+        this.renderTooltipText(this.tooltipBody);
+      }
+    });
+    this.root.setAttribute("aria-label", t("info.aria"));
+  }
+
+  /** Release the language subscription (teardownAll in main.ts). */
+  dispose(): void {
+    this.offLang();
   }
 
   /** Event contract: called by selection logic in main.ts. */
@@ -80,9 +105,9 @@ export class InfoPanel {
 
   /**
    * Re-render the CURRENT selection against the live sim/render state
-   * (moving body, mode switch). The single refresh path main.ts calls from
-   * the frame loop — callers never edit the panel DOM themselves, so the
-   * display can never diverge from the selection state.
+   * (moving body, mode switch, language switch). The single refresh path
+   * main.ts calls from the frame loop — callers never edit the panel DOM
+   * themselves, so the display can never diverge from the selection state.
    */
   refresh(): void {
     if (!this.selectedId || this.root.hidden) return;
@@ -106,15 +131,24 @@ export class InfoPanel {
 
   showTooltip(x: number, y: number, b: CelestialBodyData): void {
     this.tooltip.style.transform = `translate(${x + 12}px, ${y + 12}px)`;
-    this.tooltip.textContent = `${bilingualName(b.nameKo, b.nameEn)} · ${TYPE_KO[b.type]}`;
+    this.tooltipBody = b;
+    this.renderTooltipText(b);
     this.tooltip.hidden = false;
   }
 
   hideTooltip(): void {
     this.tooltip.hidden = true;
+    this.tooltipBody = null;
   }
 
   // --- internals -------------------------------------------------------------
+
+  private selectedId: string | null = null;
+
+  /** Tooltip caption: bilingual name · localised type (t_292b0645). */
+  private renderTooltipText(b: CelestialBodyData, lang?: Lang): void {
+    this.tooltip.textContent = `${bilingualName(b.nameKo, b.nameEn)} · ${t(TYPE_KEYS[b.type], undefined, lang)}`;
+  }
 
   private render(b: CelestialBodyData): void {
     const r = this.renderOf(b);
@@ -122,8 +156,8 @@ export class InfoPanel {
     const isMoon = b.type === "moon";
     const parent = b.parentId ? getBodyById(b.parentId) : undefined;
     const refKo = isMoon
-      ? `${parent?.nameKo ?? MISSING_DISPLAY}(${parent?.nameEn ?? "?"}) 기준`
-      : "태양(Sun) 기준";
+      ? t("info.ref.moon", { ko: parent?.nameKo ?? MISSING_DISPLAY, en: parent?.nameEn ?? "?" })
+      : t("info.ref.sun");
 
     // CURRENT real distance from the live Kepler solution — same dataset
     // values, same ui/format rules (semi-major axis stays a labelled
@@ -141,32 +175,35 @@ export class InfoPanel {
           ? formatDistanceKm(b.semiMajorAxis, refKo)
           : formatDistanceAu(b.semiMajorAxis, refKo);
 
+    // Every label resolves through t() against the CURRENT language at
+    // render time — the row table is rebuilt fresh, nothing is cached.
     const rows: [string, string][] = [
-      [SEP_REAL, ""],
-      ["종류", TYPE_KO[b.type]],
+      [t(SEP_KEYS.real), ""],
+      [t("info.kind"), t(TYPE_KEYS[b.type])],
       [
-        "실제 평균 반지름",
+        t("info.radius"),
         b.radiusKm !== undefined ? `${fmt(b.radiusKm, 1)} km` : MISSING_DISPLAY,
       ],
-      ["평균 거리 (반장축)", avgDistLabel],
-      ["현재 실제 거리", liveDistLabel],
-      ["공전 주기", formatPeriodDays(b.orbitalPeriodDays)],
-      ["자전 주기", formatRotationHours(b.rotationPeriodHours)],
-      ["이심률 (무차원)", b.eccentricity !== undefined ? fmt(b.eccentricity, 4) : MISSING_DISPLAY],
+      [t("info.avgDist"), avgDistLabel],
+      [t("info.liveDist"), liveDistLabel],
+      [t("info.period"), formatPeriodDays(b.orbitalPeriodDays)],
+      [t("info.rotation"), formatRotationHours(b.rotationPeriodHours)],
+      [t("info.ecc"), b.eccentricity !== undefined ? fmt(b.eccentricity, 4) : MISSING_DISPLAY],
       [
-        "공전 경사 (deg)",
+        t("info.incl"),
         b.inclinationDeg !== undefined ? `${fmt(b.inclinationDeg, 2)}°` : MISSING_DISPLAY,
       ],
-      [SEP_RENDER, ""],
-      ["렌더 반지름", `${fmt(r.radius, 2)} units`],
-      ["렌더 거리", `${fmt(r.distance, 1)} units · ${r.fromLabelKo}`],
-      [SEP_MODE, ""],
-      ["거리 표현", this.scale.distanceModeLabelKo()],
-      ["크기 표현", this.scale.sizeModeLabelKo()],
+      [t(SEP_KEYS.render), ""],
+      [t("info.renderRadius"), `${fmt(r.radius, 2)} units`],
+      [t("info.renderDist"), `${fmt(r.distance, 1)} units · ${r.fromLabel}`],
+      [t(SEP_KEYS.mode), ""],
+      [t("info.distMode"), this.scale.distanceModeLabel()],
+      [t("info.sizeMode"), this.scale.sizeModeLabel()],
     ];
     if (moons.length) {
-      rows.push(["위성 목록", moons.map((m) => bilingualName(m.nameKo, m.nameEn)).join(", ")]);
+      rows.push([t("info.moons"), moons.map((m) => bilingualName(m.nameKo, m.nameEn)).join(", ")]);
     }
+    const sepSet = new Set(Object.values(SEP_KEYS).map((k) => t(k)));
 
     this.content.replaceChildren();
     const h = document.createElement("h2");
@@ -175,7 +212,7 @@ export class InfoPanel {
 
     const dl = document.createElement("dl");
     for (const [k, v] of rows) {
-      if (k === SEP_REAL || k === SEP_RENDER || k === SEP_MODE) {
+      if (sepSet.has(k)) {
         const sep = document.createElement("dt");
         sep.className = "sep";
         sep.textContent = k;

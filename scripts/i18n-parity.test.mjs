@@ -13,6 +13,7 @@
  *     Korean; toggle + subscribers behave.
  */
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { i18n, installStorage } from "./i18n-harness.mjs";
 
 const { LANGS, LANGUAGE_STORAGE_KEY, MESSAGES, isLang, parseLang, loadLang, saveLang, getLang, setLang, toggleLang, onLangChange, t } =
@@ -53,6 +54,71 @@ test("no en value is just a copy of its ko key id (no placeholder passthrough)",
     assert.notEqual(MESSAGES.en[k], k, `${k} en value is an id, not a message`);
     assert.notEqual(MESSAGES.en[k], MESSAGES.ko[k], `${k} en value equals ko (untranslated)`);
   }
+});
+
+test("interpolation token sets match between ko and en for every key", () => {
+  // A message with {tokens} MUST carry the SAME token names in both
+  // languages, or one language silently loses interpolated data (t_292b0645:
+  // panel strings introduced the first parameterised messages).
+  const tokens = (s) => (s.match(/\{(\w+)\}/g) ?? []).map((t) => t.slice(1, -1)).sort();
+  const drifts = (ko, en) =>
+    Object.keys(ko).filter((k) => k in en && JSON.stringify(tokens(en[k])) !== JSON.stringify(tokens(ko[k])));
+  const drift = drifts(MESSAGES.ko, MESSAGES.en);
+  assert.deepEqual(drift, [], `token drift: ${drift.join(", ")}`);
+  // meta: the detector itself catches a dropped token
+  const driftedEn = { ...MESSAGES.en, "overlay.collapseAria": "hide the panel" };
+  assert.deepEqual(drifts(MESSAGES.ko, driftedEn), ["overlay.collapseAria"]);
+});
+
+// --- (1b) no hardcoded Korean outside the dictionary ---------------------------
+
+/** Strip block + line/trailing comments so only code strings are scanned.
+ *  (No source in UI_SOURCES contains `//` inside a string literal — verified
+ *  for this task; keep the list URL-free if that ever changes.) */
+function stripComments(s) {
+  return s
+    .replace(/\/\*[\s\S]*?\*\//g, "") // block comments
+    .split("\n")
+    .map((line) => line.replace(/\/\/.*$/, "")) // full-line AND trailing comments
+    .join("\n");
+}
+
+const HARDCODED_KO = /[\uAC00-\uD7A3]/;
+
+test("panel/UI sources resolve ALL user strings through the dictionary (t_292b0645)", () => {
+  // Scans the overlay-UI sources for Korean OUTSIDE comments: any hit is a
+  // hardcoded user-facing string that must become a dictionary key instead.
+  // Excluded on purpose:
+  //  - src/ui/i18n.ts          → the dictionary itself (source of truth)
+  //  - src/ui/format.ts        → real-data value formatting (units); locale
+  //                            priority there is owned by t_8701c121
+  //  - src/data/*              → real astronomical data (nameKo is data)
+  const UI_SOURCES = [
+    "src/ui/ControlPanel.ts",
+    "src/ui/InfoPanel.ts",
+    "src/ui/OverlayManager.ts",
+    "src/ui/overlayState.ts",
+    "src/core/ScaleManager.ts",
+    "src/core/SimulationClock.ts",
+    "src/main.ts",
+  ];
+  const offenders = [];
+  for (const rel of UI_SOURCES) {
+    const src = stripComments(readFileSync(new URL(`../${rel}`, import.meta.url), "utf8"));
+    src.split("\n").forEach((line, i) => {
+      if (HARDCODED_KO.test(line)) offenders.push(`${rel}:${i + 1}: ${line.trim()}`);
+    });
+  }
+  assert.deepEqual(offenders, [], `hardcoded Korean in UI sources:\n${offenders.join("\n")}`);
+});
+
+test("HARDCODE DETECTOR catches a literal and ignores comments (meta)", () => {
+  const sample = 'const a = "한국어 리터럴"; // 한국어 주석\n/* 한국어\n블록 */\nconst b = "english";\n';
+  const hits = stripComments(sample)
+    .split("\n")
+    .filter((l) => HARDCODED_KO.test(l));
+  assert.equal(hits.length, 1, `exactly the literal must survive stripping: ${JSON.stringify(hits)}`);
+  assert.ok(hits[0].includes("리터럴"), hits[0]);
 });
 
 test("PARITY DETECTOR fails on a missing en key (omission is caught)", () => {

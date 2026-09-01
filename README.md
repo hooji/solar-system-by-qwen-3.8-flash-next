@@ -38,6 +38,11 @@ Node 20.19+ / 22.12+ 필요 (Vite 8 요구사항).
   `localStorage["qwsolar.language.v1"]`에 저장되어 새로고침 후 복원되고,
   저장값이 없거나 잘못되었거나 저장소 접근이 실패해도 한국어로 안전 동작한다.
   (기반 t_00139ab5 — 한·영 키 대칭은 `npm test`의 i18n-parity 검사가 강제.)
+- 전환 시 헤더·인포를 넘어 패널 전체가 따라간다(t_292b0645): 제어 패널의
+  버튼·라벨·배속 선택지와 `현재 … · 재생 중` 표시, 인포 항목명·구분선,
+  스케일 모드 명칭, dock 버튼·복구 칩·`title`, 그리고 접기/펼치기 버튼의
+  aria-label까지 사전 조회로 즉시 다시 렌더링된다. 실제 천체 데이터 값과
+  개발자 로그는 번역 대상이 아니다.
 - 각 패널(헤더·제어·인포) 우 상단의 접기 버튼으로 개별 숨김/표시.
 - `H` 키: 화면의 모든 UI 패널을 한 번에 숨기거나(스크린샷용) 이전 레이아웃대로
   되돌린다. 하단 독(dock)의 개별 복구 칩(`제어` 등)으로 하나씩 되살릴 수도 있다.
@@ -154,8 +159,14 @@ src/
   안 됨), 패널은 `onLangChange(fn)` 구독으로 다시 렌더링한다(문자열 캐싱
   금지). 현재 언어는 `getLang()`/`setLang()`/`toggleLang()`, 기본 한국어,
   선택은 `localStorage["qwsolar.language.v1"]`(값 "ko"/"en" 외 전부 한국어
-  폴백, 저장소 실패도 동일). 실제 브라우저 검증:
-  `node scripts/language-browser-check.mjs` (headless Chrome + CDP, 22 항목).
+  폴백, 저장소 실패도 동일). 패널 전체의 고정 문자열(제어 버튼·라벨·배속
+  옵션, 인포 항목명·구분선·타입명, dock/칩/접기 aria-label, 스케일 모드
+  명칭, 배속·경과 라벨)은 전부 이 사전 키로 해결하며 소스에 한국어 리터럴을
+  남기지 않는다 — `scripts/i18n-parity.test.mjs`의 하드코딩 스캔(주석 제외,
+  감지기 자체 메타테스트 포함)과 `{token}` 양언어 대칭 검사가 이를 강제.
+  `PANEL_LABEL_KEYS`처럼 사전 파생 키는 컴파일 검증용 정적 매핑으로 둔다.
+  실측 검증: `node scripts/language-browser-check.mjs` (headless Chrome +
+  CDP, 38 항목 — 헤더뿐 아니라 각 패널의 양언어 렌더링·aria 전환 포함).
 - 천체 식별·선택 상태(t_766b495f): `core/bodyIdentity.ts`가 유일한 식별/상태
   계약. 천체 ID는 `CelestialBodyData.id`(부모는 `parentId`)이고, 씬 노드는
   `userData.bodyId`(mesh·group·링 모두)로만 자신을 advertised한다 —

@@ -139,7 +139,7 @@ const info = new InfoPanel(viewport, scale, (b) => {
   return {
     distance: dist?.units ?? 0,
     radius: body?.renderRadius ?? scale.mapBodyRadius(b),
-    fromLabelKo: dist?.fromLabelKo ?? "—",
+    fromLabel: dist?.fromLabel ?? "—",
   };
 });
 // Live real distances in the panel read the same sim clock as the scene.
@@ -493,6 +493,8 @@ function teardownAll(): void {
   window.removeEventListener("beforeunload", onTeardown);
   offLangHeader(); // language subscribers go with the panels (i18n t_00139ab5)
   offLangDisclaimer();
+  controlPanel.dispose(); // panel language subscriptions released (t_292b0645)
+  info.dispose();
   overlay.dispose();
   solar.dispose();
   renderer.dispose();
@@ -518,78 +520,33 @@ camera.position.set(0, 150, 260);
 controls.target.set(0, 0, 0);
 
 const YR_DAYS = 365.25;
+/** Elapsed sim time in the CURRENT language (the HUD refreshes ≥5×/s, so a
+ *  language switch relabels it on the very next frame — nothing is cached). */
 function formatSimDate(): string {
   const d = clock.simDays;
-  if (d < YR_DAYS) return `${d.toFixed(1)} 일 경과`;
-  return `${(d / YR_DAYS).toFixed(2)} 년 경과`;
+  if (d < YR_DAYS) return t("sim.elapsedDays", { value: d.toFixed(1) });
+  return t("sim.elapsedYears", { value: (d / YR_DAYS).toFixed(2) });
 }
 
+let lastRealMs: number | null = null;
 let lastHud = 0;
 function frame(realMs: number): void {
   rafId = requestAnimationFrame(frame);
   diag.frames++;
-// Enabled with `npm run dev -- --mode verify` (or VITE_VERIFY=1); never
-// active in a normal dev/prod run, so the shipped demo stays clean.
-if (import.meta.env.VITE_VERIFY === "1") {
-  interface QwVerifyApi {
-    setDistanceMode(m: DistanceMode): void;
-    setSizeMode(m: SizeMode): void;
-    select(id: string | null): void;
-    report(): {
-      simDays: number;
-      bodies: number;
-      finite: boolean;
-      helioRenderPos: Record<string, [number, number, number]>;
-      selectedRadius: number | null;
-    };
-  }
-  const api: QwVerifyApi = {
-    setDistanceMode: (m) => {
-      scale.distanceMode = m;
-      if (m === "focus" && !scale.focusAnchorId) scale.focusAnchorId = "earth";
-      solar.animateScaleChange();
-    },
-    setSizeMode: (m) => {
-      scale.sizeMode = m;
-      solar.animateScaleChange();
-    },
-    select: (id) => {
-      focusOn(id);
-      if (id) info.showBody(id);
-      else info.hide();
-    },
-    report: () => {
-      const pos: Record<string, [number, number, number]> = {};
-      let finite = true;
-      for (const [id, b] of solar.bodies) {
-        if (b.data.type === "moon") continue;
-        const p = b.group.position;
-        if (!Number.isFinite(p.x) || !Number.isFinite(p.y) || !Number.isFinite(p.z)) finite = false;
-        pos[id] = [+p.x.toFixed(2), +p.y.toFixed(2), +p.z.toFixed(2)];
-      }
-      return {
-        simDays: +clock.simDays.toFixed(3),
-        bodies: solar.bodies.size,
-        finite,
-        helioRenderPos: pos,
-        selectedRadius: selectedId ? (solar.bodies.get(selectedId)?.renderRadius ?? null) : null,
-      };
-    },
-  };
-  (window as unknown as { __qwVerify?: QwVerifyApi }).__qwVerify = api;
-}
-  clock.update(realMs);
-  solar.update(clock.simDays);
+  // Real dt drives only the visual blends (transitions/tweens); positions
+  // come from accumulated simDays alone (spec §7/§8: frame-rate independent).
+  const dtSec = lastRealMs === null ? 1 / 60 : Math.min(1, (realMs - lastRealMs) / 1000);
+  lastRealMs = realMs;
 
-  if (tween) {
-    tween.t = Math.min(1, tween.t + 0.02);
-    const k = easeInOut(tween.t);
-    controls.target.lerpVectors(tween.fromTarget, tween.toTarget, k);
-    const toPos = tween.toTarget.clone();
-    const dir = tween.fromPos.clone().sub(tween.fromTarget).normalize();
-    const desired = toPos.clone().addScaledVector(dir, tween.dist);
-    camera.position.lerp(desired, k * 0.2 + 0.06);
-    if (tween.t >= 1) tween = null;
+  clock.update(realMs);
+  solar.update(clock.simDays, dtSec);
+
+  // ONE focus path (t_31402ac4): the tween re-reads the followed body's live
+  // world position every step, so target + final position stay consistent
+  // with the scene while the body moves. Inert once finished.
+  if (cameraTween.update(dtSec, followFn, camOutPos, camOutTarget)) {
+    camera.position.copy(camOutPos);
+    controls.target.copy(camOutTarget);
   }
 
   controls.update();
@@ -597,22 +554,22 @@ if (import.meta.env.VITE_VERIFY === "1") {
 
   if (realMs - lastHud > 200) {
     lastHud = realMs;
-    // HUD update only when necessary (spec §16)
-    (window as unknown as { __qwClock?: (t: string) => void }).__qwClock?.(formatSimDate());
+    // HUD update only when necessary (spec §16): sim time + speed + state.
+    controlPanel.setStatus({
+      clockText: formatSimDate(),
+      playing: clock.playing,
+      daysPerSecond: clock.daysPerSecond,
+    });
+    // Info panel (when visible) re-renders the CURRENT selection against
+    // live sim/render state — moving bodies, scale-mode switches and the
+    // detail-view boost stay accurate without any direct DOM edits (§10).
+    info.refresh();
   }
   renderer.render(scene, camera);
   labelRenderer.render(scene, camera);
 }
 
-// expose clock text hook to control panel without class coupling
-const clockElGetter = (): HTMLElement | null =>
-  viewport.querySelector<HTMLElement>(".sim-clock");
-(window as unknown as { __qwClock?: (t: string) => void }).__qwClock = (t: string) => {
-  const el = clockElGetter();
-  if (el) el.textContent = t;
-};
-
-requestAnimationFrame(frame);
+rafId = requestAnimationFrame(frame);
 
 // --- optional interaction-free test API (verification builds only) ----------
 // Enabled with VITE_VERIFY=1; with ?autotest=1 in the URL it also runs a
@@ -753,8 +710,6 @@ if (import.meta.env.VITE_VERIFY === "1") {
     /** Selection state of record (raycast/programmatic — whatever happened),
      *  derived through the ONE contract (core/bodyIdentity.selectionFor). */
     selectedState: () => selectionFor(selectedId),
-    /** Pointer-flow counters (browser-check diagnostics, t_06891a0f). */
-    pointerDiag: () => ({ ...diag }),
     /** Pointer-flow counters (browser-check diagnostics, t_06891a0f). */
     pointerDiag: () => ({ ...diag }),
     /**

@@ -164,6 +164,78 @@ await sleep(2500);
   check("invalid stored value falls back to Korean safely", s.lang === "ko" && /로그 태양계/.test(s.title || ""), `lang=${s.lang}`);
 }
 
+// 5b. PANELS localize: control/info/overlay strings + aria names switch with
+// the language (task t_292b0645). Select a body FIRST so the info panel has
+// content to re-label, then flip EN and compare every snapshot field.
+const PANEL_SNAP = `(() => {
+  const txt = (sel) => document.querySelector(sel)?.textContent ?? null;
+  const speed = txt('.sim-speed') || "";
+  // Row label of the distance-mode row = the span sharing the row with the
+  // 'log' mode button (robust against DOM order / collapse-button insertion).
+  const distRow = document.querySelector('.control-panel button[data-mode="log"]')?.parentElement;
+  const distLabel = distRow ? [...distRow.children].find(c=>c.tagName==='SPAN')?.textContent ?? null : null;
+  // The mean real radius row is found BY LABEL (both languages), not by
+  // index (the dd-less separator dt makes index-zip unreliable). The value
+  // carries ONE decimal (fmt 1) — the full "69,911.0 km" figure is captured
+  // so a constant data value is compared across languages: real data is
+  // never translated, without flakiness from the running simulation.
+  const kmOf = (s) => (s || "").match(/([\\d,.]+) km/)?.[1] ?? null;
+  const radiusKm = (() => {
+    const want = document.documentElement.lang === "en" ? "Mean real radius" : "실제 평균 반지름";
+    const dt = [...document.querySelectorAll('.info-panel dt')].find(d=>d.textContent===want);
+    return dt ? kmOf(dt.nextElementSibling?.textContent) : null;
+  })();
+  return {
+    lang: document.documentElement.lang,
+    controlAria: document.querySelector('[data-panel="control"]')?.getAttribute('aria-label') ?? null,
+    controlTitle: txt('.control-panel .panel-header h2'),
+    play: [...(document.querySelector('.control-panel > .row')?.querySelectorAll('button')??[])].map(b=>b.textContent),
+    speedLabel: speed,
+    selText: document.querySelector('.control-panel select')?.selectedOptions[0]?.textContent ?? null,
+    distLabel,
+    infoAria: document.querySelector('[data-panel="info"]')?.getAttribute('aria-label') ?? null,
+    infoDt: [...document.querySelectorAll('.info-panel dt')].map(d=>d.textContent).slice(0, 4),
+    globalBtn: txt('.dock-global'),
+    globalTitle: document.querySelector('.dock-global')?.title ?? null,
+    collapseAria: [...document.querySelectorAll('.panel-collapse')].map(b=>b.getAttribute('aria-label')),
+    liveKm: radiusKm,
+  };
+})()`;
+
+// start from a clean Korean state with a selection on Jupiter (moons → rows)
+await evalJs(ws, `localStorage.removeItem(${JSON.stringify(LANG_KEY)}); localStorage.removeItem("qwsolar.overlay.v1"); location.reload()`);
+await sleep(2500);
+await evalJs(ws, `window.__qwSelect("jupiter")`);
+await sleep(600);
+const koSnap = await evalJs(ws, PANEL_SNAP);
+check("ko baseline: control aria + title in Korean", koSnap.controlAria === "시뮬레이션 제어" && koSnap.controlTitle === "제어", `${koSnap.controlAria}|${koSnap.controlTitle}`);
+check("ko baseline: transport buttons in Korean", JSON.stringify(koSnap.play) === JSON.stringify(["재생", "정지", "리셋"]), JSON.stringify(koSnap.play));
+check("ko baseline: speed row + select option in Korean", /현재 1초 = 10일 · (재생 중|정지)/.test(koSnap.speedLabel || "") && koSnap.selText === "1초 = 10일", `${koSnap.speedLabel}|${koSnap.selText}`);
+check("ko baseline: info rows in Korean", (koSnap.infoDt[0] || "").includes("실제 천문 데이터") && koSnap.infoDt[1] === "종류", JSON.stringify(koSnap.infoDt));
+check("ko baseline: dock button + collapse aria in Korean", koSnap.globalBtn === "패널 숨김" && koSnap.collapseAria.every((l) => /패널 (숨기기|표시)/.test(l)), `${koSnap.globalBtn}|${koSnap.collapseAria[0]}`);
+
+await evalJs(ws, `document.querySelector('.lang-toggle button[data-lang="en"]').click()`);
+await sleep(600);
+const enSnap = await evalJs(ws, PANEL_SNAP);
+check("EN: control panel aria-label and title switch to English", enSnap.controlAria === "Simulation control" && enSnap.controlTitle === "Control", `${enSnap.controlAria}|${enSnap.controlTitle}`);
+check("EN: transport buttons switch to English", JSON.stringify(enSnap.play) === JSON.stringify(["Play", "Pause", "Reset"]), JSON.stringify(enSnap.play));
+check("EN: speed readout re-composes in English word order", /^Now 1s = 10 days · (playing|paused)$/.test(enSnap.speedLabel || ""), enSnap.speedLabel || "");
+check("EN: speed select option translates", enSnap.selText === "1s = 10 days", String(enSnap.selText));
+check("EN: distance-mode row label translates", (enSnap.distLabel || "").trim() === "Distance scale", String(enSnap.distLabel));
+check("EN: info panel aria-label switches", enSnap.infoAria === "Celestial body info", String(enSnap.infoAria));
+check("EN: info rows switch to English", (enSnap.infoDt[0] || "") === "Real astronomical data" && enSnap.infoDt[1] === "Type", JSON.stringify(enSnap.infoDt));
+check("EN: dock button + title + collapse aria switch", enSnap.globalBtn === "Hide panels" && /Hide \/ show all overlays/.test(enSnap.globalTitle || "") && enSnap.collapseAria.every((l) => /panel (hide|show)/.test(l)), `${enSnap.globalBtn}|${enSnap.collapseAria[0]}`);
+check("EN: numeric data value survives the switch (same km figure in the live-distance row)", koSnap.liveKm !== null && enSnap.liveKm === koSnap.liveKm, `${koSnap.liveKm} vs ${enSnap.liveKm}`);
+check("EN: no Korean leaks anywhere in the localized panels",
+  !/[\uAC00-\uD7A3]/.test([enSnap.controlAria, enSnap.controlTitle, ...enSnap.play, enSnap.speedLabel, enSnap.selText, enSnap.infoAria, ...enSnap.infoDt, enSnap.globalBtn, ...enSnap.collapseAria].filter(Boolean).join("|")),
+  "leak check");
+
+// switch BACK to Korean: everything restores
+await evalJs(ws, `document.querySelector('.lang-toggle button[data-lang="ko"]').click()`);
+await sleep(600);
+const koBack = await evalJs(ws, PANEL_SNAP);
+check("back to ko: panels restore the original captions", koBack.controlTitle === "제어" && koBack.globalBtn === "패널 숨김" && koBack.infoDt[1] === "종류", JSON.stringify(koBack.infoDt));
+
 // 6. keyboard operability: focus + Enter activates EN (panels must be live —
 // inert panels swallow activation, so prove visible first).
 await evalJs(ws, `localStorage.removeItem(${JSON.stringify(LANG_KEY)}); localStorage.removeItem("qwsolar.overlay.v1")`);

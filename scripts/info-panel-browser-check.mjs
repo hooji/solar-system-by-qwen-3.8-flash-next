@@ -81,6 +81,13 @@ await send(ws, "Runtime.enable");
 await send(ws, "Log.enable");
 await sleep(3500); // boot + first frames
 
+// Pin the baseline to Korean (same reason as overlay-browser-check): the
+// panel localizes its row labels/sections from qwsolar.language.v1 since
+// t_292b0645, and this check asserts the KO captions.
+await evalJs(ws, `localStorage.removeItem("qwsolar.language.v1"); localStorage.removeItem("qwsolar.overlay.v1"); "reset"`);
+await send(ws, "Page.navigate", { url: process.env.QW_URL || "http://localhost:5213/" });
+await sleep(3500);
+
 // Panel snapshot: text content of the info panel + visibility facts.
 const infoSnap = `(() => {
   const el = document.querySelector('[data-panel="info"]');
