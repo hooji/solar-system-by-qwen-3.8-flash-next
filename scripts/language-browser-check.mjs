@@ -236,6 +236,95 @@ await sleep(600);
 const koBack = await evalJs(ws, PANEL_SNAP);
 check("back to ko: panels restore the original captions", koBack.controlTitle === "제어" && koBack.globalBtn === "패널 숨김" && koBack.infoDt[1] === "종류", JSON.stringify(koBack.infoDt));
 
+// 5c. DATA-LABEL priority (t_8701c121): real-data value strings and screen
+// labels follow the language mode; pairing and visibility stay independent.
+// Select Jupiter (moons rows + period > 1 year + real km figures present).
+const DATA_SNAP = `(() => {
+  const ddAfter = (want) => {
+    const dt = [...document.querySelectorAll('.info-panel dt')].find(d=>d.textContent===want);
+    return dt ? dt.nextElementSibling?.textContent ?? null : null;
+  };
+  const lang = document.documentElement.lang;
+  const rows = lang === 'en'
+    ? { period: 'Orbital period', rotation: 'Rotation period', kind: 'Type', moons: 'Moons' }
+    : { period: '공전 주기', rotation: '자전 주기', kind: '종류', moons: '위성 목록' };
+  const label = document.querySelector('.label');
+  const koLine = label?.querySelector('.label-ko')?.getBoundingClientRect();
+  const enLine = label?.querySelector('.label-en')?.getBoundingClientRect();
+  return {
+    lang,
+    h2: document.querySelector('.info-panel h2')?.textContent ?? null,
+    typeVal: ddAfter(rows.kind),
+    periodVal: ddAfter(rows.period),
+    rotationVal: lang === 'en' ? ddAfter(rows.rotation) : ddAfter(rows.rotation),
+    moonsVal: ddAfter(rows.moons),
+    avgDist: ddAfter(lang === 'en' ? 'Mean distance (semi-major axis)' : '평균 거리 (반장축)'),
+    labelClasses: label ? label.className : null,
+    labelHasBoth: !!label?.querySelector('.label-ko') && !!label?.querySelector('.label-en'),
+    koOnTop: !!(koLine && enLine && koLine.top < enLine.top),
+  };
+})()`;
+
+// Korean baseline (clean state, Jupiter selected)
+await evalJs(ws, `localStorage.removeItem(${JSON.stringify(LANG_KEY)}); localStorage.removeItem("qwsolar.overlay.v1"); location.reload()`);
+await sleep(2500);
+await evalJs(ws, `window.__qwSelect("jupiter")`);
+await sleep(700);
+const koData = await evalJs(ws, DATA_SNAP);
+check("ko data baseline: name pair Korean-first, both names", koData.h2 === "목성 · Jupiter", String(koData.h2));
+check("ko data baseline: type value in Korean", koData.typeVal === "행성", String(koData.typeVal));
+check("ko data baseline: period reads 일/년 units", /년/.test(koData.periodVal || "") && /일/.test(koData.periodVal || ""), String(koData.periodVal));
+check("ko data baseline: distance carries km AND AU figures", /km/.test(koData.avgDist || "") && /AU/.test(koData.avgDist || ""), String(koData.avgDist));
+check("ko data baseline: screen labels ko-line on top, both names present", koData.labelHasBoth && koData.koOnTop && !koData.labelClasses.includes("label-order-en"), koData.labelClasses);
+
+await evalJs(ws, `document.querySelector('.lang-toggle button[data-lang="en"]').click()`);
+await sleep(700);
+const enData = await evalJs(ws, DATA_SNAP);
+check("EN data: name pair English-first, Korean still shown", enData.h2 === "Jupiter · 목성", String(enData.h2));
+check("EN data: type value in English", enData.typeVal === "Planet", String(enData.typeVal));
+check("EN data: period unit WORDS become English, same number", /^11\.86 years \(4,333 days\)$/.test((enData.periodVal || "").trim()), String(enData.periodVal));
+const koDigits = ((koData.periodVal || "").match(/[\d.,]+/g) ?? []).join("|");
+const enDigits = ((enData.periodVal || "").match(/[\d.,]+/g) ?? []).join("|");
+check("EN data: period NUMBERS unchanged by the switch (display-only)", koDigits === enDigits && koDigits.length > 0, `${koDigits} vs ${enDigits}`);
+// The DISTANCE figures must be byte-identical across the switch; only the
+// ref label (a dictionary WORD string) is allowed to translate.
+const figs = (s) => ((s || "").split(" · ")[0] ?? "").trim();
+check("EN data: km/AU figures unchanged by the switch (ref label may translate)",
+  figs(enData.avgDist) === figs(koData.avgDist) && /km/.test(figs(enData.avgDist)),
+  `${figs(koData.avgDist)} vs ${figs(enData.avgDist)}`);
+check("EN data: moon list pairs flip to English-first", !!enData.moonsVal && enData.moonsVal.startsWith("Io · 이오"), String(enData.moonsVal || "").slice(0, 28));
+check("EN data: screen labels flip order (English line on top), pair kept", enData.labelHasBoth && enData.labelClasses.includes("label-order-en") && !enData.koOnTop, `${enData.labelClasses} koOnTop=${enData.koOnTop}`);
+
+// label visibility stays INDEPENDENT of language: uncheck Labels while in EN,
+// every CSS2D host must be display:none via the label object toggle.
+const labelsHidden = await evalJs(ws, `(() => {
+  const cb = [...document.querySelectorAll('.control-panel input[type=checkbox]')][1]; // 이름표/Labels row
+  cb.checked = false; cb.dispatchEvent(new Event('change', { bubbles: true }));
+  return true;
+})()`);
+await sleep(400);
+const labelVis = await evalJs(ws, `(() => {
+  const labels = [...document.querySelectorAll('.label')];
+  return {
+    count: labels.length,
+    allHidden: labels.length > 0 && labels.every(el => el.style.display === 'none'),
+    anyHidden: labels.some(el => el.style.display === 'none'),
+  };
+})()`);
+check("EN + labels unchecked: every label host hidden — visibility independent of language",
+  labelVis.count > 0 && labelVis.allHidden, JSON.stringify(labelVis));
+await evalJs(ws, `(() => {
+  const cb = [...document.querySelectorAll('.control-panel input[type=checkbox]')][1];
+  cb.checked = true; cb.dispatchEvent(new Event('change', { bubbles: true }));
+})()`);
+await sleep(300);
+
+// back to Korean restores ko-first data labels too
+await evalJs(ws, `document.querySelector('.lang-toggle button[data-lang="ko"]').click()`);
+await sleep(700);
+const koDataBack = await evalJs(ws, DATA_SNAP);
+check("back to ko: data labels restore Korean-first (pair + units + label order)", koDataBack.h2 === "목성 · Jupiter" && /년/.test(koDataBack.periodVal || "") && koDataBack.koOnTop, `${koDataBack.h2}|${koDataBack.periodVal}`);
+
 // 6. keyboard operability: focus + Enter activates EN (panels must be live —
 // inert panels swallow activation, so prove visible first).
 await evalJs(ws, `localStorage.removeItem(${JSON.stringify(LANG_KEY)}); localStorage.removeItem("qwsolar.overlay.v1")`);

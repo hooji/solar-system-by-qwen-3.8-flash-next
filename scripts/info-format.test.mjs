@@ -7,7 +7,7 @@
  * names plus unit-bearing values with no placeholders in place of real data.
  */
 import assert from "node:assert/strict";
-import { format, data } from "./info-format-harness.mjs";
+import { format, data, i18n } from "./info-format-harness.mjs";
 
 const {
   KM_PER_AU,
@@ -103,6 +103,78 @@ t("bilingual name pairs Korean and English, placeholder for gaps", () => {
   assert.equal(bilingualName("목성", "Jupiter"), "목성 · Jupiter");
   assert.equal(bilingualName("", "Jupiter"), "— · Jupiter");
   assert.equal(bilingualName(undefined, undefined), "— · —");
+});
+
+// --- locale-aware data-label priority (task t_8701c121) -----------------------
+// Korean mode keeps the ORIGINAL strings byte-for-byte; EN mode leads with
+// English words. Numbers/conversions are IDENTICAL in both modes — a
+// language switch is a display-layer event, never a data event.
+
+t("period EN mode: English unit words, same scale rule (days < year, years above)", () => {
+  assert.equal(formatPeriodDays(1.769, "en"), "1.77 days");
+  const jup = formatPeriodDays(4332.59, "en");
+  assert.ok(jup.includes("11.86 years"), jup);
+  assert.ok(jup.includes("4,333 days"), `day count kept in parens: ${jup}`);
+  assert.ok(!/[\uAC00-\uD7A3]/.test(jup), `no Korean leak: ${jup}`);
+});
+
+t("period ko mode with EXPLICIT lang keeps the original strings", () => {
+  assert.equal(formatPeriodDays(1.769, "ko"), "1.77 일");
+  assert.ok(formatPeriodDays(4332.59, "ko").includes("년"));
+});
+
+t("period: the NUMBERS are identical across languages (display-only change)", () => {
+  const digits = (s) => (s.match(/[\d.,]+/g) ?? []).join("|");
+  assert.equal(digits(formatPeriodDays(4332.59, "ko")), digits(formatPeriodDays(4332.59, "en")));
+  assert.equal(digits(formatPeriodDays(1.769, "ko")), digits(formatPeriodDays(1.769, "en")));
+});
+
+t("rotation EN mode: English retrograde marker, no bare negative", () => {
+  assert.equal(formatRotationHours(23.93, "en"), "23.93 h");
+  const retro = formatRotationHours(-5832.43, "en");
+  assert.ok(retro.includes("retrograde") && !/[\uAC00-\uD7A3]/.test(retro), retro);
+  assert.ok(!retro.includes("-"), `no bare negative: ${retro}`);
+});
+
+t("name pair: ko mode unchanged, EN mode English-first with BOTH names", () => {
+  assert.equal(bilingualName("목성", "Jupiter", "ko"), "목성 · Jupiter");
+  assert.equal(bilingualName("목성", "Jupiter", "en"), "Jupiter · 목성");
+  assert.equal(bilingualName("", "Jupiter", "en"), "Jupiter · —");
+  assert.equal(bilingualName(undefined, undefined, "en"), "— · —");
+});
+
+t("formatters FOLLOW the current language without an explicit lang arg", () => {
+  const before = i18n.getLang();
+  try {
+    i18n.setLang("en");
+    assert.equal(formatPeriodDays(1.769), "1.77 days");
+    assert.equal(bilingualName("지구", "Earth"), "Earth · 지구");
+    i18n.setLang("ko");
+    assert.equal(formatPeriodDays(1.769), "1.77 일");
+    assert.equal(bilingualName("지구", "Earth"), "지구 · Earth");
+  } finally {
+    i18n.setLang(before);
+  }
+});
+
+t("reference labels: each language leads with ITS name order (dictionary)", () => {
+  // Moon ref: ko template leads with the Korean parent name; EN template
+  // leads with the English one — the OTHER name always stays visible.
+  const koRef = i18n.t("info.ref.moon", { ko: "목성", en: "Jupiter" }, "ko");
+  const enRef = i18n.t("info.ref.moon", { ko: "목성", en: "Jupiter" }, "en");
+  assert.ok(koRef.indexOf("목성") < koRef.indexOf("Jupiter"), koRef);
+  assert.ok(enRef.indexOf("Jupiter") < enRef.indexOf("목성"), enRef);
+  assert.ok(koRef.includes("목성") && koRef.includes("Jupiter"), "pair kept in ko");
+  assert.ok(enRef.includes("목성") && enRef.includes("Jupiter"), "pair kept in en");
+});
+
+t("type labels: every body type resolves in BOTH languages, no placeholders", () => {
+  for (const lang of ["ko", "en"]) {
+    for (const key of ["type.star", "type.planet", "type.dwarf-planet", "type.moon"]) {
+      const v = i18n.t(key, undefined, lang);
+      assert.ok(v.trim().length > 0 && !v.includes("?"), `${lang}.${key} = ${v}`);
+    }
+  }
 });
 
 // --- whole-dataset sweep ---------------------------------------------------------

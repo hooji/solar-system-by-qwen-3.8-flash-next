@@ -4,6 +4,15 @@
  * three.js) so Node tests can pin the rules: missing data NEVER surfaces as
  * `undefined`/`NaN`/blank — it always renders MISSING_DISPLAY ("—").
  *
+ * Locale priority (task t_8701c121): every user-visible WORD this module
+ * emits (period units, the retrograde marker, the bilingual name-pair order)
+ * follows the language mode — Korean mode keeps the original ko-primary
+ * strings byte-for-byte, EN mode leads with English. The dictionary in
+ * ui/i18n.ts owns those words; this module only passes the lang through.
+ * Physical VALUES (numbers, km↔AU conversion, unit symbols km/AU/h, the °
+ * sign) are identical in both languages — a language switch never changes
+ * a number, a conversion, or an inclination/scale figure.
+ *
  * km ↔ AU conversion (spec: one consistent rule everywhere):
  *   1 AU = 149,597,870.7 km (IAU exact), always derived from the SAME raw
  *   value with the SAME rounding rule (toLocaleString, max 2 fraction
@@ -13,6 +22,7 @@
  * formatted by the caller in a SEPARATE section and must never be mixed into
  * these real-value formatters.
  */
+import { getLang, t, type Lang } from "./i18n";
 
 /** Exact IAU astronomical unit in km — the only conversion constant allowed. */
 export const KM_PER_AU = 149_597_870.7;
@@ -20,7 +30,12 @@ export const KM_PER_AU = 149_597_870.7;
 /** Explicit placeholder for any value the dataset does not carry. */
 export const MISSING_DISPLAY = "—";
 
-/** Unified rounding: Korean-locale grouping, ≤2 fraction digits by default. */
+/**
+ * Unified rounding: Korean-locale grouping, ≤2 fraction digits by default.
+ * The GROUPING is a numeric convention (3-digit separators are the same in
+ * both app languages), deliberately fixed so the same figure renders
+ * identically in ko and EN mode — real numbers never change with language.
+ */
 export function fmt(n: number | undefined, digits = 2): string {
   if (n === undefined || n === null || !Number.isFinite(n)) return MISSING_DISPLAY;
   return n.toLocaleString("ko-KR", { maximumFractionDigits: digits });
@@ -44,6 +59,9 @@ export function auToKm(au: number): number {
 /**
  * Distance given in km, shown as km with its AU equivalent in parentheses
  * (small-body scale: moon orbits). Undefined/NaN → MISSING_DISPLAY.
+ * km-first is the SCALE rule (km is the primary unit for km-scale values),
+ * independent of the language mode — both languages show the same two unit
+ * symbols; only the caller-supplied reference label carries words.
  */
 export function formatDistanceKm(km: number | undefined, refLabel?: string): string {
   if (!hasValue(km)) return MISSING_DISPLAY;
@@ -54,7 +72,8 @@ export function formatDistanceKm(km: number | undefined, refLabel?: string): str
 
 /**
  * Distance given in AU, shown as AU with its km equivalent in parentheses
- * (heliocentric scale). Same rounding rule as formatDistanceKm.
+ * (heliocentric scale). Same rounding rule as formatDistanceKm; same
+ * scale-driven unit order in both languages.
  */
 export function formatDistanceAu(au: number | undefined, refLabel?: string): string {
   if (!hasValue(au)) return MISSING_DISPLAY;
@@ -66,27 +85,44 @@ export function formatDistanceAu(au: number | undefined, refLabel?: string): str
 /**
  * Orbital period in Earth days with meaning: short periods read in days,
  * ≥1 tropical-ish year switches to a year figure (days stay in parens).
+ * The unit WORDS come from the dictionary in the given language (t_8701c121):
+ * ko keeps "일"/"년", EN reads "days"/"years" — numbers identical.
  */
-export function formatPeriodDays(days: number | undefined): string {
+export function formatPeriodDays(days: number | undefined, lang: Lang = getLang()): string {
   if (!hasValue(days)) return MISSING_DISPLAY;
   const YR = 365.25; // Julian year, same constant the dataset conversions use
-  if (Math.abs(days) < YR) return `${fmt(days)} 일`;
-  return `${fmt(days / YR)} 년 (${fmt(days, 0)} 일)`;
+  if (Math.abs(days) < YR)
+    return `${fmt(days)} ${t(Math.abs(days) === 1 ? "unit.day" : "unit.days", undefined, lang)}`;
+  const years = days / YR;
+  return (
+    `${fmt(years)} ${t(Math.abs(years) === 1 ? "unit.year" : "unit.years", undefined, lang)} ` +
+    `(${fmt(days, 0)} ${t("unit.days", undefined, lang)})`
+  );
 }
 
 /**
  * Sidereal rotation in hours. NEGATIVE hours = retrograde spin (dataset
  * convention) — the sign is shown as a meaning, never as a bare negative.
+ * The marker word follows the language mode; the h symbol does not.
  */
-export function formatRotationHours(hours: number | undefined): string {
+export function formatRotationHours(hours: number | undefined, lang: Lang = getLang()): string {
   if (!hasValue(hours)) return MISSING_DISPLAY;
-  const dir = hours < 0 ? " · 역행(retrograde)" : "";
+  const dir = hours < 0 ? ` · ${t("rotation.retrograde", undefined, lang)}` : "";
   return `${fmt(Math.abs(hours))} h${dir}`;
 }
 
-/** Bilingual name pair ("목성 · Jupiter"); empty/missing name → MISSING_DISPLAY. */
-export function bilingualName(nameKo: string | undefined, nameEn: string | undefined): string {
+/**
+ * Bilingual name pair — BOTH names always visible (project rule); the
+ * language mode only picks which leads (t_8701c121): ko mode keeps the
+ * original "목성 · Jupiter", EN mode reads "Jupiter · 목성". Empty/missing
+ * side → MISSING_DISPLAY in either mode.
+ */
+export function bilingualName(
+  nameKo: string | undefined,
+  nameEn: string | undefined,
+  lang: Lang = getLang(),
+): string {
   const ko = nameKo?.trim() || MISSING_DISPLAY;
   const en = nameEn?.trim() || MISSING_DISPLAY;
-  return `${ko} · ${en}`;
+  return lang === "en" ? `${en} · ${ko}` : `${ko} · ${en}`;
 }

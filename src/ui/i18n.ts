@@ -111,6 +111,19 @@ const KO = {
   "scale.from.parent": "{name} 기준 (parent-local)",
   "scale.from.focus": "기준 {name} (focus)",
   "scale.from.sun": "태양 기준",
+
+  // --- data-label priority (t_8701c121) ---------------------------------------
+  // Value strings for REAL data rows: unit WORDS, retrograde marker, and the
+  // bilingual name pair. Each language's template fixes its OWN natural word
+  // order, so ui/format.ts carries no language branches — only a lang arg.
+  // Latin unit SYMBOLS (km/AU/h/units/°) are deliberately NOT keys: they are
+  // identical in both languages (international scientific notation), and the
+  // parity test would (rightly) reject a key whose en value copies its ko one.
+  "unit.day": "일",
+  "unit.days": "일",
+  "unit.year": "년",
+  "unit.years": "년",
+  "rotation.retrograde": "역행(retrograde)",
 } as const;
 
 /** Every message key in the app (derived from the Korean dictionary). */
@@ -214,6 +227,15 @@ const EN: Record<MessageKey, string> = {
   "scale.from.parent": "from {name} (parent-local)",
   "scale.from.focus": "from {name} (focus)",
   "scale.from.sun": "from the Sun",
+
+  // Data-label priority (t_8701c121): English leads. Period units are English
+  // words, the retrograde marker is English, and the name pair leads with the
+  // English name (ko token = the Korean DATA field, still shown second).
+  "unit.day": "day",
+  "unit.days": "days",
+  "unit.year": "year",
+  "unit.years": "years",
+  "rotation.retrograde": "retrograde",
 };
 
 /** Runtime dictionaries (exported for the parity test; one lookup path). */

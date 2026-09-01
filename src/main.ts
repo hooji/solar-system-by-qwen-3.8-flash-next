@@ -124,7 +124,9 @@ const scale = new ScaleManager();
 const clock = new SimulationClock();
 const solar = new SolarSystem(scene, scale);
 const labels = new Labels();
-labels.attach(solar);
+// NOTE: attach() runs AFTER restoreLang() below — the label line order is
+// locale-priority (t_8701c121) and must read the RESTORED language, not the
+// default. (attach only builds DOM; nothing depends on it happening here.)
 
 let selectedId: string | null = null;
 
@@ -150,6 +152,9 @@ info.setSimDaysProvider(() => clock.simDays);
 // header builds, header text rendered through t(), and a keyboard-operable
 // EN/한국어 toggle exposes the current state via aria-pressed.
 restoreLang();
+// Screen labels order their bilingual lines by the RESTORED language now
+// (t_8701c121); later switches arrive through the Labels subscription.
+labels.attach(solar);
 const header = document.createElement("header");
 header.className = "panel header";
 const headerTitle = document.createElement("h1");
@@ -495,6 +500,7 @@ function teardownAll(): void {
   offLangDisclaimer();
   controlPanel.dispose(); // panel language subscriptions released (t_292b0645)
   info.dispose();
+  labels.dispose(); // screen-label language subscription (t_8701c121)
   overlay.dispose();
   solar.dispose();
   renderer.dispose();
