@@ -116,6 +116,14 @@ controls.dampingFactor = 0.06;
 controls.minDistance = 1;
 controls.maxDistance = 1500;
 
+// The stored language is restored BEFORE any panel is constructed:
+// constructors that stamp t()-derived names (InfoPanel's aria-label, the
+// overlay dock) must read the RESTORED language, not the default Korean —
+// otherwise a reload in EN mode keeps boot-time Korean names until the next
+// toggle (regression found by t_8a229bca). Nothing below depends on the
+// default language at construction time.
+restoreLang();
+
 // --- overlay panel toggle system (task t_30700e13) --------------------------
 const overlay = new OverlayManager(viewport);
 
@@ -148,10 +156,10 @@ const info = new InfoPanel(viewport, scale, (b) => {
 info.setSimDaysProvider(() => clock.simDays);
 
 // Header + disclaimer (spec §14). Strings and the language state come from
-// ui/i18n.ts (foundation t_00139ab5): stored choice restored BEFORE the
-// header builds, header text rendered through t(), and a keyboard-operable
-// EN/한국어 toggle exposes the current state via aria-pressed.
-restoreLang();
+// ui/i18n.ts (foundation t_00139ab5): the stored choice was restored above
+// (before any panel construction), header text renders through t(), and a
+// keyboard-operable EN/한국어 toggle exposes the current state via
+// aria-pressed.
 // Screen labels order their bilingual lines by the RESTORED language now
 // (t_8701c121); later switches arrive through the Labels subscription.
 labels.attach(solar);
@@ -178,6 +186,10 @@ for (const l of LANGS) {
 function renderHeader(lang: Lang): void {
   headerTitle.textContent = t("header.title", undefined, lang);
   headerSub.textContent = t("header.subtitle", undefined, lang);
+  // Browser-tab title follows the language too (t_8a229bca): ko keeps the
+  // bilingual dictionary string, EN reads English-only — same source as the
+  // on-page H1, so the tab never contradicts the rendered header.
+  document.title = t("header.title", undefined, lang);
   langGroup.setAttribute("aria-label", t("header.langGroup", undefined, lang));
   for (const [l, b] of langBtns) b.setAttribute("aria-pressed", String(l === lang));
   document.documentElement.lang = lang;

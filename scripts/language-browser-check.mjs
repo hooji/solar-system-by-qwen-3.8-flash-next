@@ -155,6 +155,27 @@ await sleep(2500);
   check("restored EN survives before first interaction", /logarithmic/.test(s.disclaimer || ""));
 }
 
+// 4b. BOOT-TIME localization on an EN reload (t_8a229bca regression): every
+// name an element stamps AT CONSTRUCTION — the browser-tab document.title,
+// the info panel's aria-label — must already be English before any toggle
+// fires. Pre-fix, restoreLang() ran after InfoPanel's constructor, so a
+// stored-EN reload kept Korean access names until the NEXT language change.
+{
+  const s = await evalJs(ws, `(() => {
+    const koRe = /[\\u3131-\\uD7A3]/;
+    return {
+      docTitle: document.title,
+      infoAria: document.querySelector('[data-panel="info"]')?.getAttribute('aria-label') ?? null,
+      ariaLeaks: [...document.querySelectorAll('[aria-label]')]
+        .map(e => e.getAttribute('aria-label'))
+        .filter(a => a && koRe.test(a)),
+    };
+  })()`);
+  check("EN reload: browser-tab document.title is English (no Korean)", s.docTitle === "Logarithmic Solar System", s.docTitle);
+  check("EN reload: info panel aria-label boots English (constructor reads restored lang)", s.infoAria === "Celestial body info", String(s.infoAria));
+  check("EN reload: ZERO Korean inside any aria-label", s.ariaLeaks.length === 0, JSON.stringify(s.ariaLeaks));
+}
+
 // 5. garbage stored value → safe Korean fallback
 await evalJs(ws, `localStorage.setItem(${JSON.stringify(LANG_KEY)}, "klingon")`);
 await send(ws, "Page.reload");

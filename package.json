@@ -6,7 +6,7 @@
   "description": "Three.js logarithmic solar-system demo (spec: docs/THREEJS_SOLAR_DEMO_PROMPT.md)",
   "scripts": {
     "dev": "vite",
-    "test": "node scripts/overlay-state.test.mjs && node scripts/sim-time.test.mjs && node scripts/body-identity.test.mjs && node scripts/info-format.test.mjs",
+    "test": "node scripts/overlay-state.test.mjs && node scripts/sim-time.test.mjs && node scripts/body-identity.test.mjs && node scripts/pick-input.test.mjs && node scripts/camera-focus.test.mjs && node scripts/info-format.test.mjs && node scripts/orbit-shape.test.mjs && node scripts/i18n-parity.test.mjs",
     "typecheck": "tsc --noEmit",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview"
