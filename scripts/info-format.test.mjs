@@ -22,6 +22,7 @@ const {
   formatPeriodDays,
   formatRotationHours,
   displayName,
+  bodyDisplayName,
 } = format;
 const { SOLAR_SYSTEM } = data;
 
@@ -145,6 +146,35 @@ t("name: each mode shows ONLY its own language's name — never the pair", () =>
   assert.ok(!displayName("목성", "Jupiter", "en").includes("목성"));
   assert.ok(!displayName("목성", "Jupiter", "ko").includes("·"), "no pair separator");
   assert.ok(!displayName("목성", "Jupiter", "en").includes("·"), "no pair separator");
+});
+
+t("bodyDisplayName: localized names win, gaps fall back to the English name", () => {
+  const jup = SOLAR_SYSTEM.find((b) => b.id === "jupiter");
+  assert.equal(bodyDisplayName(jup, "ko"), "목성");
+  assert.equal(bodyDisplayName(jup, "en"), "Jupiter");
+  assert.equal(bodyDisplayName(jup, "ja"), "木星");
+  assert.equal(bodyDisplayName(jup, "zh"), "木星");
+  assert.equal(bodyDisplayName(jup, "es"), "Júpiter");
+  assert.equal(bodyDisplayName(jup, "ar"), "المشتري");
+  // fr/de write Jupiter exactly like English — exercised as the fallback path
+  assert.equal(bodyDisplayName(jup, "fr"), "Jupiter");
+  assert.equal(bodyDisplayName(jup, "de"), "Jupiter");
+  const io = SOLAR_SYSTEM.find((b) => b.id === "io");
+  assert.equal(bodyDisplayName(io, "zh"), "木卫一", "Chinese systematic designation");
+  assert.equal(bodyDisplayName(io, "es"), "Ío");
+  assert.equal(bodyDisplayName(undefined, "en"), MISSING_DISPLAY, "missing body → placeholder");
+});
+
+t("bodyDisplayName: EVERY body resolves to a real name in EVERY language", () => {
+  for (const lang of i18n.LANGS) {
+    for (const b of SOLAR_SYSTEM) {
+      const name = bodyDisplayName(b, lang);
+      assert.ok(
+        typeof name === "string" && name.length > 0 && name !== MISSING_DISPLAY,
+        `${lang}/${b.id}: ${JSON.stringify(name)}`,
+      );
+    }
+  }
 });
 
 t("formatters FOLLOW the current language without an explicit lang arg", () => {

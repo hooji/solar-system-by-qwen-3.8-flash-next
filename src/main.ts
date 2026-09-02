@@ -33,6 +33,8 @@ import { Labels } from "./ui/Labels";
 import { OverlayManager } from "./ui/OverlayManager";
 import {
   LANGS,
+  LANG_FLAGS,
+  RTL_LANGS,
   getLang,
   onLangChange,
   restoreLang,
@@ -108,6 +110,12 @@ labelRenderer.setSize(window.innerWidth, window.innerHeight);
 labelRenderer.domElement.style.position = "absolute";
 labelRenderer.domElement.style.inset = "0";
 labelRenderer.domElement.style.pointerEvents = "none";
+// CSS2D labels are absolutely positioned from their STATIC position, which
+// document dir=rtl (Arabic) moves to the right edge — every label's screen
+// translate would land off-screen. The label layer is a pixel coordinate
+// space, not prose: pin it to LTR (RTL text inside labels still shapes
+// correctly — bidi is per text run).
+labelRenderer.domElement.style.direction = "ltr";
 viewport.appendChild(labelRenderer.domElement);
 
 const controls = new OrbitControls(camera, renderer.domElement);
@@ -177,8 +185,13 @@ for (const l of LANGS) {
   b.type = "button";
   b.dataset.lang = l;
   // `lang.${l}` is LangLabelKey ⊆ MessageKey — typed, no cast; explicit `l`
-  // keeps each label in its OWN language ("한국어" / "EN") in both modes.
-  b.textContent = t(`lang.${l}`, undefined, l);
+  // keeps each label an AUTONYM (its own language's name) in every mode,
+  // prefixed with the language's little flag.
+  const flag = document.createElement("span");
+  flag.className = "lang-flag";
+  flag.setAttribute("aria-hidden", "true");
+  flag.textContent = LANG_FLAGS[l];
+  b.append(flag, document.createTextNode(t(`lang.${l}`, undefined, l)));
   b.addEventListener("click", () => setLang(l));
   langBtns.set(l, b);
   langGroup.appendChild(b);
@@ -193,6 +206,9 @@ function renderHeader(lang: Lang): void {
   langGroup.setAttribute("aria-label", t("header.langGroup", undefined, lang));
   for (const [l, b] of langBtns) b.setAttribute("aria-pressed", String(l === lang));
   document.documentElement.lang = lang;
+  // Arabic (and any future RTL language) flips the document's text
+  // direction; panel positions are fixed-coordinate and unaffected.
+  document.documentElement.dir = RTL_LANGS.has(lang) ? "rtl" : "ltr";
 }
 renderHeader(getLang());
 header.append(headerTitle, headerSub, langGroup);

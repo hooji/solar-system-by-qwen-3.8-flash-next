@@ -40,13 +40,15 @@ frame.
 
 ## Panel visibility and hotkeys
 
-- Switch the panel language with the `EN / 한국어` toggle at the bottom-left
-  of the header. English is the default; the choice is saved in
+- Switch the display language with the flag buttons at the bottom-left of
+  the header — eight languages: English, 한국어, 日本語, 中文, Français,
+  Deutsch, Español and العربية (Arabic also flips the document to RTL).
+  English is the default; the choice is saved in
   `localStorage["qwsolar.language.v1"]` and restored after a reload, and it
   fails safe to English when no stored value exists, the stored value is
   invalid, or storage access fails.
-  (Base task t_00139ab5 — the Korean/English key symmetry is enforced by the
-  i18n-parity check in `npm test`.)
+  (Base task t_00139ab5 — key symmetry across ALL dictionaries is enforced
+  at compile time and by the i18n-parity check in `npm test`.)
 - When switching, the translation covers every panel, not just the header and
   info panel (t_292b0645): control-panel buttons, labels and speed options
   and the `Now … · playing` readout, info row names and separators,
@@ -54,8 +56,11 @@ frame.
   and even the collapse/expand buttons' aria-labels all re-render immediately
   through dictionary lookup. Developer logs are not translated. Body names
   render in the CURRENT language only: EN mode shows `Jupiter`, Korean mode
-  shows `목성` — in the on-screen labels, the info-panel title and moon list,
-  the tooltip, and every reference label. Unit words follow the language too
+  `목성`, Japanese `木星`, Chinese the systematic `木卫一`-style names,
+  Spanish `Júpiter`, Arabic `المشتري` — in the on-screen labels, the
+  info-panel title and moon list, the tooltip, and every reference label
+  (`src/data/bodyNames.ts`; a language without an entry for a body falls
+  back to the English name). Unit words follow the language too
   (`11.86 years (4,333 days)` ↔ `11.86 년 (4,333 일)`), while both unit
   notations (km/AU) and every number, conversion, and tilt/scale calculation
   stay identical regardless of language (the display layer changes only).
@@ -201,6 +206,7 @@ src/
   data/solarSystemData.ts      # real data (single source)
   data/validateSolarSystem.ts  # data-validation utility
   data/bodyTextures.ts         # body id → real NASA surface-map file (public/textures/)
+  data/bodyNames.ts            # body id → localized display names (ja/zh/fr/de/es/ar)
   core/ScaleManager.ts         # real data → render-unit conversion (3 distance & 5 size modes)
   core/SimulationClock.ts      # speed / play / pause / reset
   core/Kepler.ts               # Kepler-equation solver & orbit-plane position (pure functions)

@@ -3,14 +3,14 @@
  * foundation for t_ff056f3b panel English support).
  * Run: node scripts/i18n-parity.test.mjs
  *
- * (1) KEY PARITY: Korean and English dictionaries carry the EXACT same key
- *     set — a missing key, an extra key, or an empty translation fails.
- *     The check itself is meta-tested on deliberately drifted copies so the
- *     detector is proven, not assumed.
- * (2) LANGUAGE STATE: default is Korean; the explicit choice persists under
+ * (1) KEY PARITY: every language dictionary carries the EXACT key set of
+ *     the Korean source of truth — a missing key, an extra key, or an empty
+ *     translation fails. The check itself is meta-tested on deliberately
+ *     drifted copies so the detector is proven, not assumed.
+ * (2) LANGUAGE STATE: default is English; the explicit choice persists under
  *     the documented localStorage key and restores on "reload" (fresh load);
  *     missing/invalid values and storage-access failure all stay safely in
- *     Korean; toggle + subscribers behave.
+ *     English; toggle cycles the full language roster + subscribers behave.
  */
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -42,29 +42,39 @@ function parityIssues(ko, en) {
 
 // --- (1) key parity ------------------------------------------------------------
 
-test("ko and en dictionaries carry EXACTLY the same key set", () => {
-  const issues = parityIssues(MESSAGES.ko, MESSAGES.en);
-  assert.deepEqual(issues, [], issues.join("; "));
+test("EVERY language dictionary carries EXACTLY the ko key set", () => {
+  assert.ok(LANGS.length >= 8, `expected the full language roster, got ${LANGS.join(",")}`);
+  for (const lang of LANGS) {
+    if (lang === "ko") continue;
+    const issues = parityIssues(MESSAGES.ko, MESSAGES[lang]);
+    assert.deepEqual(issues, [], `[${lang}] ${issues.join("; ")}`);
+  }
   assert.ok(Object.keys(MESSAGES.ko).length >= 5, "dictionary is not trivially empty");
 });
 
-test("no en value is just a copy of its ko key id (no placeholder passthrough)", () => {
-  for (const k of Object.keys(MESSAGES.ko)) {
-    if (k.startsWith("lang.")) continue; // language names are intentionally untranslated
-    assert.notEqual(MESSAGES.en[k], k, `${k} en value is an id, not a message`);
-    assert.notEqual(MESSAGES.en[k], MESSAGES.ko[k], `${k} en value equals ko (untranslated)`);
+test("no dictionary value is a key id or an untranslated ko copy", () => {
+  for (const lang of LANGS) {
+    if (lang === "ko") continue;
+    for (const k of Object.keys(MESSAGES.ko)) {
+      if (k.startsWith("lang.")) continue; // autonyms are shared by design
+      assert.notEqual(MESSAGES[lang][k], k, `${lang}.${k} value is an id, not a message`);
+      assert.notEqual(MESSAGES[lang][k], MESSAGES.ko[k], `${lang}.${k} value equals ko (untranslated)`);
+    }
   }
 });
 
-test("interpolation token sets match between ko and en for every key", () => {
-  // A message with {tokens} MUST carry the SAME token names in both
-  // languages, or one language silently loses interpolated data (t_292b0645:
+test("interpolation token sets match ko in EVERY language for every key", () => {
+  // A message with {tokens} MUST carry the SAME token names in every
+  // language, or one language silently loses interpolated data (t_292b0645:
   // panel strings introduced the first parameterised messages).
   const tokens = (s) => (s.match(/\{(\w+)\}/g) ?? []).map((t) => t.slice(1, -1)).sort();
-  const drifts = (ko, en) =>
-    Object.keys(ko).filter((k) => k in en && JSON.stringify(tokens(en[k])) !== JSON.stringify(tokens(ko[k])));
-  const drift = drifts(MESSAGES.ko, MESSAGES.en);
-  assert.deepEqual(drift, [], `token drift: ${drift.join(", ")}`);
+  const drifts = (ko, other) =>
+    Object.keys(ko).filter((k) => k in other && JSON.stringify(tokens(other[k])) !== JSON.stringify(tokens(ko[k])));
+  for (const lang of LANGS) {
+    if (lang === "ko") continue;
+    const drift = drifts(MESSAGES.ko, MESSAGES[lang]);
+    assert.deepEqual(drift, [], `[${lang}] token drift: ${drift.join(", ")}`);
+  }
   // meta: the detector itself catches a dropped token
   const driftedEn = { ...MESSAGES.en, "overlay.collapseAria": "hide the panel" };
   assert.deepEqual(drifts(MESSAGES.ko, driftedEn), ["overlay.collapseAria"]);
@@ -149,7 +159,7 @@ test("default language is English with no stored value", () => {
 });
 
 test("invalid stored values are rejected and fall back to English", () => {
-  for (const bad of ["fr", "", "KR", "korean", "null", "ko-KR!!"]) {
+  for (const bad of ["pt", "", "KR", "korean", "null", "ko-KR!!", "EN", "ja-JP"]) {
     const s = installStorage(bad);
     try {
       assert.equal(loadLang(), "en", `stored "${bad}" must not select a language`);
@@ -185,19 +195,22 @@ test("explicit choice persists under the documented key and restores on reload",
   }
 });
 
-test("toggleLang flips ko↔en, notifies subscribers, and persists each step", () => {
+test("toggleLang cycles through EVERY language, notifies, persists each step", () => {
   const s = installStorage("ok");
-  setLang("ko"); // baseline BEFORE subscribing
+  setLang(LANGS[0]); // baseline BEFORE subscribing
   const seen = [];
   const off = onLangChange((l) => seen.push(l));
   try {
-    assert.equal(toggleLang(), "en");
-    assert.equal(toggleLang(), "ko");
-    assert.deepEqual(seen, ["en", "ko"]);
-    assert.equal(s.store.get(LANGUAGE_STORAGE_KEY), "ko");
+    // One full lap: visits every language once, in order, and wraps.
+    const expected = [...LANGS.slice(1), LANGS[0]];
+    for (const want of expected) {
+      assert.equal(toggleLang(), want);
+      assert.equal(s.store.get(LANGUAGE_STORAGE_KEY), want, "persisted at each step");
+    }
+    assert.deepEqual(seen, expected);
     off();
     toggleLang(); // unsubscribed listener must not be called again
-    assert.deepEqual(seen, ["en", "ko"], "unsubscribe honoured");
+    assert.deepEqual(seen, expected, "unsubscribe honoured");
   } finally {
     off();
     s.dispose();
@@ -244,9 +257,11 @@ test("t() on a runtime-injected key that en lacks returns a visible placeholder"
 });
 
 test("isLang accepts only the declared languages", () => {
-  assert.equal(isLang("ko"), true);
-  assert.equal(isLang("en"), true);
-  assert.equal(isLang("ja"), false);
+  for (const l of ["en", "ko", "ja", "zh", "fr", "de", "es", "ar"]) {
+    assert.equal(isLang(l), true, l);
+  }
+  assert.equal(isLang("pt"), false);
+  assert.equal(isLang("EN"), false);
   assert.equal(isLang(undefined), false);
 });
 

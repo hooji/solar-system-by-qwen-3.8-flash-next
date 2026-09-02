@@ -40,8 +40,9 @@ html, body {
 }
 .header h1 { margin: 0 0 2px; font-size: 16px; }
 .header .sub { color: var(--text-dim); font-size: 11px; }
-/* EN/한국어 language toggle in the header (i18n foundation t_00139ab5). */
-.header .lang-toggle { display: flex; gap: 4px; margin-top: 6px; }
+/* Language toggle in the header (i18n foundation t_00139ab5): one button
+   per language, flag + autonym, wrapping onto extra rows as needed. */
+.header .lang-toggle { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
 .header .lang-toggle button {
   background: rgba(126, 162, 255, 0.14);
   border: 1px solid var(--panel-border);
@@ -50,6 +51,12 @@ html, body {
   padding: 2px 8px;
   cursor: pointer;
   font-size: 11px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.header .lang-toggle .lang-flag {
+  font-family: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif;
 }
 .header .lang-toggle button:hover { background: rgba(126, 162, 255, 0.3); }
 .header .lang-toggle button[aria-pressed="true"] { outline: 1px solid var(--accent); }

@@ -12,21 +12,21 @@ import { CSS2DObject } from "three/addons/renderers/CSS2DRenderer.js";
 import type { SolarSystem } from "../core/SolarSystem";
 import { selectionFor } from "../core/bodyIdentity";
 import { getLang, onLangChange, type Lang } from "./i18n";
-import { displayName } from "./format";
+import { bodyDisplayName, type NamedBody } from "./format";
 
 export class Labels {
   private visible = true;
   /** Scratch — no per-frame allocation (spec §16). */
   private readonly scratch = new THREE.Vector3();
-  /** Live label hosts + their names — re-labelled in place on a switch. */
-  private readonly hosts: { el: HTMLElement; nameKo: string; nameEn: string }[] = [];
+  /** Live label hosts + their bodies — re-labelled in place on a switch. */
+  private readonly hosts: { el: HTMLElement; body: NamedBody }[] = [];
   private offLang: (() => void) | null = null;
 
   attach(solar: SolarSystem): void {
     for (const body of solar.bodies.values()) {
       const el = document.createElement("div");
       el.className = "label";
-      this.hosts.push({ el, nameKo: body.data.nameKo, nameEn: body.data.nameEn });
+      this.hosts.push({ el, body: body.data });
       const obj = new CSS2DObject(el);
       obj.center.set(0.5, 0);
       obj.position.set(0, body.renderRadius + 0.4, 0);
@@ -53,7 +53,7 @@ export class Labels {
    * declutter and selection behaviour are untouched by this.
    */
   private applyLanguage(lang: Lang): void {
-    for (const h of this.hosts) h.el.textContent = displayName(h.nameKo, h.nameEn, lang);
+    for (const h of this.hosts) h.el.textContent = bodyDisplayName(h.body, lang);
   }
 
   /** Hide moon labels in global view; show them when parent selected. */
