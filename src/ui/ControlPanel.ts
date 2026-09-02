@@ -48,7 +48,13 @@ export class ControlPanel {
     null;
   private readonly offLang: () => void;
 
-  constructor(container: HTMLElement, cb: ControlPanelCallbacks) {
+  constructor(
+    container: HTMLElement,
+    cb: ControlPanelCallbacks,
+    /** Modes rendered as pressed at build time — pass the live ScaleManager
+     *  values so the panel never invents its own defaults. */
+    initial: { distanceMode: DistanceMode; sizeMode: SizeMode },
+  ) {
     this.root = document.createElement("aside");
     this.root.className = "panel control-panel";
 
@@ -107,15 +113,18 @@ export class ControlPanel {
         ["log", "Log"],
         ["linear", "Linear"],
         ["focus", "Focus"],
-      ], (m) => cb.onDistanceMode(m)),
+      ], initial.distanceMode, (m) => cb.onDistanceMode(m)),
     );
-    // Size mode.
+    // Size mode. Huge/Gigantic magnify the enhanced mapping ×3/×10 — easier
+    // to see and to click; Huge is the app default (ScaleManager).
     this.root.appendChild(
       this.modeRow<SizeMode>("control.sizeScale", [
         ["enhanced", "Enhanced"],
+        ["huge", "Huge"],
+        ["gigantic", "Gigantic"],
         ["relative", "Relative"],
         ["uniform", "Uniform"],
-      ], (m) => cb.onSizeMode(m)),
+      ], initial.sizeMode, (m) => cb.onSizeMode(m)),
     );
 
     // Visibility toggles.
@@ -210,6 +219,7 @@ export class ControlPanel {
   private modeRow<T extends string>(
     labelKey: MessageKey,
     modes: [T, string][],
+    initial: T,
     onPick: (m: T) => void,
   ): HTMLElement {
     const row = document.createElement("div");
@@ -217,10 +227,23 @@ export class ControlPanel {
     const lab = document.createElement("span");
     this.bindLabel(lab, labelKey, " "); // trailing space after the row label (both languages)
     row.appendChild(lab);
+    const buttons: HTMLButtonElement[] = [];
+    const setActive = (active: HTMLButtonElement): void => {
+      for (const el of buttons) {
+        el.classList.toggle("active", el === active);
+        el.setAttribute("aria-pressed", String(el === active));
+      }
+    };
     for (const [mode, name] of modes) {
-      const b = btn(() => onPick(mode));
+      const b = btn(() => {
+        onPick(mode);
+        setActive(b);
+      });
       b.textContent = name; // mode names are product terms — same in both languages
       b.dataset.mode = mode;
+      b.classList.toggle("active", mode === initial);
+      b.setAttribute("aria-pressed", String(mode === initial));
+      buttons.push(b);
       row.appendChild(b);
     }
     return row;

@@ -55,7 +55,11 @@ const rp = a * (1 - e);
 const ra = a * (1 + e);
 const PARENT_R = 1.2; // render units (Earth enhanced-mode radius)
 
+// Band-geometry tests pin the 1× (enhanced) rule — the app's default size
+// mode is now "huge" (enhanced ×3), whose layout-anchored band is asserted
+// separately below.
 const scale = new ScaleManager({});
+scale.sizeMode = "enhanced";
 
 /**
  * Sample the DRAWN moon line through the REAL OrbitRenderer code path, in
@@ -300,6 +304,7 @@ t("mode-invariant + uniform system boost: log/linear/focus draw the same ellipse
 
   // Select the Earth system → band ×2.2 boost must be a uniform rescale.
   const sel = new ScaleManager({});
+  sel.sizeMode = "enhanced";
   sel.selectedId = "earth";
   assert.ok(sel.systemBoostActive);
   const boosted = sampledLine(moon, range, sel);
@@ -313,6 +318,38 @@ t("mode-invariant + uniform system boost: log/linear/focus draw the same ellipse
   }
   assert.ok(Math.abs(f1.ratio - f0.ratio) < 1e-5, "boost changed the axis ratio");
   console.log(`  # boost factor=${s.toFixed(4)} (periapsis-capped: pre-cap band would give 2.2 — periapsis rides the cap, shape kept)`);
+});
+
+// ---------------------------------------------------------------------------
+// 9. Huge/Gigantic size modes: the body magnification must NOT magnify the
+//    moon-orbit layout. The band anchors to the parent's LAYOUT radius
+//    (rendered ÷ multiplier), with an inner floor that clears the enlarged
+//    surface (×1.4 of the visual radius) and a minimum band width (×1.7).
+// ---------------------------------------------------------------------------
+t("huge/gigantic: moon band stays layout-anchored, clear of the enlarged surface", () => {
+  const layout = PARENT_R; // enhanced-mode (1×) radius of the parent
+  for (const [mode, mult] of [["huge", 3], ["gigantic", 10]]) {
+    const sc = new ScaleManager({});
+    sc.sizeMode = mode;
+    const visual = layout * mult; // what mapBodyRadius renders in this mode
+    const inner = sc.mapSatelliteDistance(rp, rp, ra, visual);
+    const outer = sc.mapSatelliteDistance(ra, rp, ra, visual);
+    // Inner ring clears the planet's enlarged surface…
+    assert.ok(inner >= visual * 1.4 * (1 - 1e-9), `${mode}: inner ${inner} inside surface ${visual}`);
+    // …and the outer ring never inflates with the multiplier: it stays at
+    // the 1× layout ceiling (9 × layout) or the minimum band width.
+    const ceiling = Math.max(9 * layout, inner * 1.7);
+    assert.ok(outer <= ceiling * (1 + 1e-9), `${mode}: outer ${outer} above ${ceiling}`);
+    assert.ok(outer < 9 * visual, `${mode}: band wrongly scaled with the multiplier`);
+    // The drawn orbit obeys the same cap (line ≡ body contract).
+    const s = sc.satelliteOrbitScale(a, e, rp, ra, visual);
+    assert.ok(s * ra <= ceiling * (1 + 1e-6), `${mode}: drawn apoapsis above the band`);
+  }
+  // The 1× modes keep the original 2.5×–9× rule exactly.
+  const sc1 = new ScaleManager({});
+  sc1.sizeMode = "enhanced";
+  assert.ok(Math.abs(sc1.mapSatelliteDistance(rp, rp, ra, PARENT_R) - PARENT_R * 2.5) < 1e-9);
+  assert.ok(Math.abs(sc1.mapSatelliteDistance(ra, rp, ra, PARENT_R) - PARENT_R * 9) < 1e-9);
 });
 
 console.log(

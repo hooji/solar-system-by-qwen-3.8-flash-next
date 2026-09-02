@@ -11,8 +11,10 @@
  *                      is placed by its REAL offset from the anchor (AU),
  *                      gently compressed. All relative motion stays visible.
  *
- * Three size modes (spec §6): enhanced (√-compressed, default), relative
- * (linear-ratio emphasis), uniform (fixed markers).
+ * Five size modes (spec §6 + demo-UI magnification): enhanced (√-compressed),
+ * huge (enhanced ×3, default — bigger targets are easier to read and click),
+ * gigantic (enhanced ×10), relative (linear-ratio emphasis), uniform (fixed
+ * markers). The Sun keeps its fixed render radius in every mode.
  */
 import * as THREE from "three";
 import {
@@ -22,11 +24,24 @@ import {
   type CelestialBodyData,
 } from "../data/solarSystemData";
 import { t, type Lang } from "../ui/i18n";
+import { displayName } from "../ui/format";
 import { ellipsePlanePosition } from "./Kepler";
 import { systemParentOf } from "./bodyIdentity";
 
 export type DistanceMode = "log" | "linear" | "focus";
-export type SizeMode = "enhanced" | "relative" | "uniform";
+export type SizeMode = "enhanced" | "relative" | "uniform" | "huge" | "gigantic";
+
+/**
+ * Magnification of the enhanced mapping per size mode (planets/dwarfs/moons
+ * only — the Sun is excluded, or it would swallow the inner orbits).
+ */
+export const SIZE_MODE_MULTIPLIER: Readonly<Record<SizeMode, number>> = {
+  enhanced: 1,
+  relative: 1,
+  uniform: 1,
+  huge: 3,
+  gigantic: 10,
+};
 
 export interface ScaleConfig {
   /** Pluto-scale maximum AU used by log mapping (spec §4). */
@@ -79,7 +94,7 @@ export interface PlanePoint {
 
 export class ScaleManager {
   distanceMode: DistanceMode = "log";
-  sizeMode: SizeMode = "enhanced";
+  sizeMode: SizeMode = "huge";
   /** Selected body id — enlarges its local system (spec §5/§13). */
   selectedId: string | null = null;
   /**
@@ -213,10 +228,31 @@ export class ScaleManager {
   }
 
   /**
+   * Moon-orbit render band around a parent, from the parent's rendered
+   * radius. The band is anchored to the parent's LAYOUT radius (the rendered
+   * radius with the huge/gigantic magnification divided back out): the
+   * magnification is a pure body-size zoom for visibility/clickability and
+   * must not fling moons ×3/×10 further out (at ×3, Callisto would render
+   * past Saturn's orbit). Two guards keep the band sane at high zoom: the
+   * inner edge clears the parent's VISUAL surface (×1.4) and the outer edge
+   * stays a real band (≥ ×1.7 of the inner edge). For the 1× modes
+   * (enhanced/relative/uniform) this reduces exactly to the original
+   * 2.5×–9× (× systemMoonBoost while selected) rule.
+   */
+  private moonBand(parentRenderRadius: number): { minR: number; maxR: number } {
+    const mult = SIZE_MODE_MULTIPLIER[this.sizeMode] ?? 1;
+    const layoutR = parentRenderRadius / mult;
+    const minR = Math.max(2.5 * layoutR, 1.4 * parentRenderRadius);
+    const boosted = 9 * layoutR * (this.systemBoostActive ? this.cfg.systemMoonBoost : 1);
+    return { minR, maxR: Math.max(boosted, minR * 1.7) };
+  }
+
+  /**
    * Satellite SIZE mapping (spec §5): log1p over the shifted range inside a
-   * planetary system, output 2.5×–9× of the parent's rendered radius. When the
-   * system is selected, the outer ring doubles out for the detail view
-   * (spec §13: "enlarge and clarify its local moon system").
+   * planetary system, output across the moonBand() of the parent's rendered
+   * radius (2.5×–9× of the parent in the 1× size modes). When the system is
+   * selected, the outer ring doubles out for the detail view (spec §13:
+   * "enlarge and clarify its local moon system").
    *
    * This maps an orbit's CHARACTERISTIC radius (its semi-major axis) — it is
    * NOT a per-vertex radius remap. Feeding r(θ) through it vertex-by-vertex
@@ -232,9 +268,7 @@ export class ScaleManager {
     maxDistanceKm: number,
     parentRenderRadius: number,
   ): number {
-    const minR = parentRenderRadius * 2.5;
-    const maxR =
-      parentRenderRadius * 9 * (this.systemBoostActive ? this.cfg.systemMoonBoost : 1);
+    const { minR, maxR } = this.moonBand(parentRenderRadius);
     const shifted = Math.max(0, distanceKm - minDistanceKm);
     const shiftedMax = Math.max(1, maxDistanceKm - minDistanceKm);
     const normalized = Math.log1p(shifted) / Math.log1p(shiftedMax);
@@ -261,8 +295,7 @@ export class ScaleManager {
   ): number {
     const a = Math.max(semiMajorAxisKm, 1e-9);
     const e = THREE.MathUtils.clamp(eccentricity, 0, 0.999);
-    const maxR =
-      parentRenderRadius * 9 * (this.systemBoostActive ? this.cfg.systemMoonBoost : 1);
+    const { maxR } = this.moonBand(parentRenderRadius);
     const size = this.mapSatelliteDistance(a, minDistanceKm, maxDistanceKm, parentRenderRadius);
     return Math.min(size / a, maxR / (a * (1 + e)));
   }
@@ -334,12 +367,17 @@ export class ScaleManager {
         // Stronger emphasis on true ratios, still clamped for visibility.
         r = THREE.MathUtils.clamp(0.25 + 0.35 * ratio, 0.25, 6.5);
         break;
+      case "huge":
+      case "gigantic":
       case "enhanced":
       default:
+        // huge/gigantic magnify the SAME √-compressed mapping (×3/×10) so
+        // relative ordering is preserved — only the on-screen size grows.
         r =
           body.type === "moon"
             ? THREE.MathUtils.clamp(0.16 + 0.4 * Math.sqrt(ratio), 0.16, 0.75)
             : THREE.MathUtils.clamp(0.55 + 0.65 * Math.sqrt(ratio), 0.55, 4.0);
+        r *= SIZE_MODE_MULTIPLIER[this.sizeMode] ?? 1;
     }
 
     return r;
@@ -356,17 +394,22 @@ export class ScaleManager {
     if (this.distanceMode === "linear") return t("scale.dist.linear", undefined, lang);
     const anchor = this.focusAnchorId ? getBodyById(this.focusAnchorId) : undefined;
     return anchor
-      ? t("scale.dist.focus", { name: anchor.nameKo }, lang)
+      ? t("scale.dist.focus", { name: displayName(anchor.nameKo, anchor.nameEn, lang) }, lang)
       : t("scale.dist.focusSun", undefined, lang);
   }
 
   /** Localised size-mode label (t_292b0645); default = current language. */
   sizeModeLabel(lang?: Lang): string {
-    return this.sizeMode === "enhanced"
-      ? t("scale.size.enhanced", undefined, lang)
-      : this.sizeMode === "relative"
-        ? t("scale.size.relative", undefined, lang)
-        : t("scale.size.uniform", undefined, lang);
+    const key = (
+      {
+        enhanced: "scale.size.enhanced",
+        relative: "scale.size.relative",
+        uniform: "scale.size.uniform",
+        huge: "scale.size.huge",
+        gigantic: "scale.size.gigantic",
+      } as const
+    )[this.sizeMode];
+    return t(key, undefined, lang);
   }
 
   /** Helper for info panels: current render radius of a body. */
@@ -406,7 +449,7 @@ export class ScaleManager {
           parentRenderRadius,
         ),
         fromLabel: t("scale.from.parent", {
-          name: getBodyById(body.parentId ?? "")?.nameKo ?? "?",
+          name: nameOf(getBodyById(body.parentId ?? "")),
         }),
       };
     }
@@ -414,10 +457,15 @@ export class ScaleManager {
     const out = { x: 0, cz: 0 };
     this.mapHeliocentricPlanePoint(p, this.anchorPlanePositionAU(simDays), out);
     const from = this.focusActive
-      ? t("scale.from.focus", { name: getBodyById(this.focusAnchorId ?? "")?.nameKo ?? "?" })
+      ? t("scale.from.focus", { name: nameOf(getBodyById(this.focusAnchorId ?? "")) })
       : t("scale.from.sun");
     return { units: Math.hypot(out.x, out.cz), fromLabel: from };
   }
+}
+
+/** Current-language name of a possibly-missing body ("?" placeholder). */
+function nameOf(body: CelestialBodyData | undefined): string {
+  return body ? displayName(body.nameKo, body.nameEn) : "?";
 }
 
 /** Real plane position (AU) of a heliocentric body at simDays (shared helper). */

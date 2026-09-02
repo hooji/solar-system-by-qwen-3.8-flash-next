@@ -30,7 +30,8 @@ export class CelestialBody {
   readonly tiltGroup: THREE.Group;
   readonly mesh: THREE.Mesh;
   private readonly material: THREE.MeshStandardMaterial;
-  private readonly baseEmissiveIntensity: number;
+  /** Mutable: a photo emissive map re-bases the sun's glow (applyTexture). */
+  private baseEmissiveIntensity: number;
 
   renderRadius = 0;
   /** Detail-view dim state (spec §13): unrelated bodies fade back. */
@@ -153,6 +154,28 @@ export class CelestialBody {
   applyRadius(scale: ScaleManager): void {
     this.renderRadius = scale.mapBodyRadius(this.data);
     this.mesh.scale.setScalar(this.renderRadius);
+  }
+
+  /**
+   * Swap the procedural look for a real photographic surface map (async
+   * texture load callback). The map carries the body's true colors, so the
+   * displayColor tint gives way to white; the emissive sun re-bases its glow
+   * on the photo (white light through the map at unit intensity). Respects a
+   * dim state that may have been applied while the file was still loading.
+   */
+  applyTexture(tex: THREE.Texture): void {
+    const mat = this.material;
+    mat.map = tex;
+    mat.color.set(0xffffff);
+    if (this.data.render?.emissive) {
+      mat.emissiveMap = tex;
+      mat.emissive.set(0xffffff);
+      this.baseEmissiveIntensity = 1.0;
+      mat.emissiveIntensity = this.dimmed
+        ? this.baseEmissiveIntensity * 0.15
+        : this.baseEmissiveIntensity;
+    }
+    mat.needsUpdate = true;
   }
 
   /**

@@ -103,14 +103,8 @@ html, body {
   z-index: 30;
 }
 
-.label { display: flex; flex-direction: column; text-align: center; pointer-events: none; text-shadow: 0 1px 3px #000; }
-.label-ko { display: block; font-size: 12px; color: var(--text); }
-.label-en { display: block; font-size: 10px; color: var(--text-dim); }
-/* Locale label priority (t_8701c121): EN mode leads with the English line —
-   the pair is always both names, only the order/weight follows the language. */
-.label.label-order-en { flex-direction: column-reverse; }
-.label.label-order-en .label-ko { font-size: 10px; color: var(--text-dim); }
-.label.label-order-en .label-en { font-size: 12px; color: var(--text); }
+/* Single-language body labels: one name, in the current display language. */
+.label { text-align: center; pointer-events: none; text-shadow: 0 1px 3px #000; font-size: 12px; color: var(--text); }
 
 /* --- overlay toggle system (task t_30700e13) ------------------------------ */
 

@@ -1,9 +1,8 @@
 /**
  * Labels — CSS2D screen-aligned labels (spec §11).
- * Bilingual: BOTH names always shown. Locale priority (task t_8701c121):
- * Korean mode leads with the Korean line (original look), EN mode leads with
- * the English line — the PAIR is never reduced to one name and the order
- * flip is independent of label visibility (the control-panel 이름표/Labels
+ * Single-language: each label shows the body name in the CURRENT language
+ * only (선택 언어 단일 표기) and re-renders in place on a language switch.
+ * The language never affects label visibility (the control-panel Labels
  * checkbox and the H hotkey keep working unchanged).
  * Density reduced by camera distance and selection state; moon labels only
  * when their parent is selected.
@@ -13,27 +12,21 @@ import { CSS2DObject } from "three/addons/renderers/CSS2DRenderer.js";
 import type { SolarSystem } from "../core/SolarSystem";
 import { selectionFor } from "../core/bodyIdentity";
 import { getLang, onLangChange, type Lang } from "./i18n";
+import { displayName } from "./format";
 
 export class Labels {
   private visible = true;
   /** Scratch — no per-frame allocation (spec §16). */
   private readonly scratch = new THREE.Vector3();
-  /** Live label hosts — reordered in place on a language switch. */
-  private readonly hosts: HTMLElement[] = [];
+  /** Live label hosts + their names — re-labelled in place on a switch. */
+  private readonly hosts: { el: HTMLElement; nameKo: string; nameEn: string }[] = [];
   private offLang: (() => void) | null = null;
 
   attach(solar: SolarSystem): void {
     for (const body of solar.bodies.values()) {
       const el = document.createElement("div");
       el.className = "label";
-      const ko = document.createElement("span");
-      ko.className = "label-ko";
-      ko.textContent = body.data.nameKo;
-      const en = document.createElement("span");
-      en.className = "label-en";
-      en.textContent = body.data.nameEn;
-      el.append(ko, en);
-      this.hosts.push(el);
+      this.hosts.push({ el, nameKo: body.data.nameKo, nameEn: body.data.nameEn });
       const obj = new CSS2DObject(el);
       obj.center.set(0.5, 0);
       obj.position.set(0, body.renderRadius + 0.4, 0);
@@ -42,10 +35,10 @@ export class Labels {
       body.group.add(obj);
       solar.labelObjects.set(body.data.id, obj);
     }
-    // One subscription for the whole class: language change re-orders every
-    // label IN PLACE (CSS-driven, no DOM rebuild, no per-label caches).
-    this.offLang ??= onLangChange((lang) => this.applyOrder(lang));
-    this.applyOrder(getLang());
+    // One subscription for the whole class: language change re-labels every
+    // host IN PLACE (textContent swap, no DOM rebuild, no per-label caches).
+    this.offLang ??= onLangChange((lang) => this.applyLanguage(lang));
+    this.applyLanguage(getLang());
   }
 
   /** Release the language subscription (teardownAll in main.ts). */
@@ -56,13 +49,11 @@ export class Labels {
   }
 
   /**
-   * Language mode ONLY picks which name leads: `html[lang]` + the order class
-   * flip the two stacked lines (EN mode puts English on top). Visibility,
+   * Render every label as the CURRENT language's name only. Visibility,
    * declutter and selection behaviour are untouched by this.
    */
-  private applyOrder(lang: Lang): void {
-    const en = lang === "en";
-    for (const el of this.hosts) el.classList.toggle("label-order-en", en);
+  private applyLanguage(lang: Lang): void {
+    for (const h of this.hosts) h.el.textContent = displayName(h.nameKo, h.nameEn, lang);
   }
 
   /** Hide moon labels in global view; show them when parent selected. */

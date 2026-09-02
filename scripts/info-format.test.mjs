@@ -3,8 +3,9 @@
  * Run: node scripts/info-format.test.mjs
  * Pins the ONE formatting rule set ui/format.ts: missing data NEVER leaks as
  * undefined/NaN/blank, km↔AU always uses the same exact constant and the
- * same rounding, and every real dataset body formats to complete bilingual
- * names plus unit-bearing values with no placeholders in place of real data.
+ * same rounding, and every real dataset body formats to a complete
+ * current-language name plus unit-bearing values with no placeholders in
+ * place of real data.
  */
 import assert from "node:assert/strict";
 import { format, data, i18n } from "./info-format-harness.mjs";
@@ -20,7 +21,7 @@ const {
   formatDistanceAu,
   formatPeriodDays,
   formatRotationHours,
-  bilingualName,
+  displayName,
 } = format;
 const { SOLAR_SYSTEM } = data;
 
@@ -86,23 +87,26 @@ t("AU distance shows both units with the unified rounding rule", () => {
 
 // --- meaning-bearing values ----------------------------------------------------
 
-t("period: days below a year, years (with day count) above", () => {
-  assert.equal(formatPeriodDays(1.769), "1.77 일");
-  assert.ok(formatPeriodDays(4332.59).includes("년"), "Jupiter 11.86 y");
-  assert.ok(formatPeriodDays(4332.59).includes("일"), "days kept in parens");
+t("period: days below a year, years (with day count) above (EN default)", () => {
+  assert.equal(formatPeriodDays(1.769), "1.77 days");
+  assert.ok(formatPeriodDays(4332.59).includes("years"), "Jupiter 11.86 y");
+  assert.ok(formatPeriodDays(4332.59).includes("days"), "days kept in parens");
 });
 
 t("rotation: retrograde sign is shown as meaning, magnitude stays positive", () => {
   assert.equal(formatRotationHours(23.93), "23.93 h");
   const retro = formatRotationHours(-5832.43);
-  assert.ok(retro.includes("역행"), retro);
+  assert.ok(retro.includes("retrograde"), retro);
   assert.ok(!retro.includes("-"), `no bare negative: ${retro}`);
 });
 
-t("bilingual name pairs Korean and English, placeholder for gaps", () => {
-  assert.equal(bilingualName("목성", "Jupiter"), "목성 · Jupiter");
-  assert.equal(bilingualName("", "Jupiter"), "— · Jupiter");
-  assert.equal(bilingualName(undefined, undefined), "— · —");
+t("displayName: the selected language's name ONLY, other-language fallback for gaps", () => {
+  assert.equal(displayName("목성", "Jupiter", "ko"), "목성");
+  assert.equal(displayName("목성", "Jupiter", "en"), "Jupiter");
+  assert.equal(displayName("", "Jupiter", "ko"), "Jupiter", "missing ko → real en name beats a placeholder");
+  assert.equal(displayName("목성", "", "en"), "목성", "missing en → real ko name beats a placeholder");
+  assert.equal(displayName(undefined, undefined, "ko"), MISSING_DISPLAY);
+  assert.equal(displayName(undefined, undefined, "en"), MISSING_DISPLAY);
 });
 
 // --- locale-aware data-label priority (task t_8701c121) -----------------------
@@ -136,11 +140,11 @@ t("rotation EN mode: English retrograde marker, no bare negative", () => {
   assert.ok(!retro.includes("-"), `no bare negative: ${retro}`);
 });
 
-t("name pair: ko mode unchanged, EN mode English-first with BOTH names", () => {
-  assert.equal(bilingualName("목성", "Jupiter", "ko"), "목성 · Jupiter");
-  assert.equal(bilingualName("목성", "Jupiter", "en"), "Jupiter · 목성");
-  assert.equal(bilingualName("", "Jupiter", "en"), "Jupiter · —");
-  assert.equal(bilingualName(undefined, undefined, "en"), "— · —");
+t("name: each mode shows ONLY its own language's name — never the pair", () => {
+  assert.ok(!displayName("목성", "Jupiter", "ko").includes("Jupiter"));
+  assert.ok(!displayName("목성", "Jupiter", "en").includes("목성"));
+  assert.ok(!displayName("목성", "Jupiter", "ko").includes("·"), "no pair separator");
+  assert.ok(!displayName("목성", "Jupiter", "en").includes("·"), "no pair separator");
 });
 
 t("formatters FOLLOW the current language without an explicit lang arg", () => {
@@ -148,24 +152,21 @@ t("formatters FOLLOW the current language without an explicit lang arg", () => {
   try {
     i18n.setLang("en");
     assert.equal(formatPeriodDays(1.769), "1.77 days");
-    assert.equal(bilingualName("지구", "Earth"), "Earth · 지구");
+    assert.equal(displayName("지구", "Earth"), "Earth");
     i18n.setLang("ko");
     assert.equal(formatPeriodDays(1.769), "1.77 일");
-    assert.equal(bilingualName("지구", "Earth"), "지구 · Earth");
+    assert.equal(displayName("지구", "Earth"), "지구");
   } finally {
     i18n.setLang(before);
   }
 });
 
-t("reference labels: each language leads with ITS name order (dictionary)", () => {
-  // Moon ref: ko template leads with the Korean parent name; EN template
-  // leads with the English one — the OTHER name always stays visible.
-  const koRef = i18n.t("info.ref.moon", { ko: "목성", en: "Jupiter" }, "ko");
-  const enRef = i18n.t("info.ref.moon", { ko: "목성", en: "Jupiter" }, "en");
-  assert.ok(koRef.indexOf("목성") < koRef.indexOf("Jupiter"), koRef);
-  assert.ok(enRef.indexOf("Jupiter") < enRef.indexOf("목성"), enRef);
-  assert.ok(koRef.includes("목성") && koRef.includes("Jupiter"), "pair kept in ko");
-  assert.ok(enRef.includes("목성") && enRef.includes("Jupiter"), "pair kept in en");
+t("reference labels: {name} carries the current-language name only", () => {
+  const koRef = i18n.t("info.ref.moon", { name: displayName("목성", "Jupiter", "ko") }, "ko");
+  const enRef = i18n.t("info.ref.moon", { name: displayName("목성", "Jupiter", "en") }, "en");
+  assert.ok(koRef.includes("목성") && !koRef.includes("Jupiter"), koRef);
+  assert.ok(enRef.includes("Jupiter") && !enRef.includes("목성"), enRef);
+  assert.ok(!koRef.includes("{name}") && !enRef.includes("{name}"), "token resolved");
 });
 
 t("type labels: every body type resolves in BOTH languages, no placeholders", () => {
@@ -179,10 +180,12 @@ t("type labels: every body type resolves in BOTH languages, no placeholders", ()
 
 // --- whole-dataset sweep ---------------------------------------------------------
 
-t("EVERY dataset body formats bilingually with real data and no leaks", () => {
+t("EVERY dataset body has a real name in BOTH languages and formats without leaks", () => {
   for (const b of SOLAR_SYSTEM) {
-    const name = bilingualName(b.nameKo, b.nameEn);
-    assert.ok(name.includes("·") && !name.includes(MISSING_DISPLAY), `name ${b.id}: ${name}`);
+    for (const lang of ["ko", "en"]) {
+      const name = displayName(b.nameKo, b.nameEn, lang);
+      assert.ok(name.length > 0 && !name.includes(MISSING_DISPLAY), `name ${b.id} (${lang}): ${name}`);
+    }
 
     const radius = `${fmt(b.radiusKm, 1)} km`;
     assert.ok(!radius.includes(MISSING_DISPLAY) && radius.endsWith("km"), `radius ${b.id}`);
@@ -213,8 +216,10 @@ t("moon sweep: every moon has a parent in the dataset for the reference label", 
     if (b.type !== "moon") continue;
     const p = byId.get(b.parentId);
     assert.ok(p, `moon ${b.id} parent label would be missing`);
-    const d = formatDistanceKm(b.semiMajorAxis, bilingualName(p.nameKo, p.nameEn));
-    assert.ok(d.includes(p.nameKo) && d.includes(p.nameEn), `${b.id}: ${d}`);
+    const dKo = formatDistanceKm(b.semiMajorAxis, displayName(p.nameKo, p.nameEn, "ko"));
+    const dEn = formatDistanceKm(b.semiMajorAxis, displayName(p.nameKo, p.nameEn, "en"));
+    assert.ok(dKo.includes(p.nameKo) && !dKo.includes(p.nameEn), `${b.id}: ${dKo}`);
+    assert.ok(dEn.includes(p.nameEn) && !dEn.includes(p.nameKo), `${b.id}: ${dEn}`);
   }
 });
 

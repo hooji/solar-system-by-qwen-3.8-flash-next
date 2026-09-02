@@ -2,8 +2,8 @@
  * InfoPanel + hover tooltip (spec §10). Renders REAL astronomical data and
  * RENDER values (screen-layout only) in clearly separated sections so the
  * two can never be confused (task t_d9203468). All real-value formatting —
- * bilingual names, units, km↔AU conversion, missing-data placeholders —
- * comes from ui/format.ts, the ONE display-rule set.
+ * current-language names, units, km↔AU conversion, missing-data placeholders
+ * — comes from ui/format.ts, the ONE display-rule set.
  *
  * Content follows the selection state: `showBody(id)` renders a selection,
  * `refresh()` re-renders the SAME selection against the current sim time so
@@ -21,7 +21,7 @@ import type { ScaleManager } from "../core/ScaleManager";
 import { ellipseOf } from "../core/ScaleManager";
 import {
   MISSING_DISPLAY,
-  bilingualName,
+  displayName,
   fmt,
   formatDistanceAu,
   formatDistanceKm,
@@ -145,9 +145,9 @@ export class InfoPanel {
 
   private selectedId: string | null = null;
 
-  /** Tooltip caption: bilingual name · localised type (t_292b0645). */
+  /** Tooltip caption: current-language name · localised type (t_292b0645). */
   private renderTooltipText(b: CelestialBodyData, lang?: Lang): void {
-    this.tooltip.textContent = `${bilingualName(b.nameKo, b.nameEn)} · ${t(TYPE_KEYS[b.type], undefined, lang)}`;
+    this.tooltip.textContent = `${displayName(b.nameKo, b.nameEn, lang)} · ${t(TYPE_KEYS[b.type], undefined, lang)}`;
   }
 
   private render(b: CelestialBodyData): void {
@@ -155,8 +155,8 @@ export class InfoPanel {
     const moons = getChildrenOf(b.id);
     const isMoon = b.type === "moon";
     const parent = b.parentId ? getBodyById(b.parentId) : undefined;
-    const refKo = isMoon
-      ? t("info.ref.moon", { ko: parent?.nameKo ?? MISSING_DISPLAY, en: parent?.nameEn ?? "?" })
+    const refLabel = isMoon
+      ? t("info.ref.moon", { name: displayName(parent?.nameKo, parent?.nameEn) })
       : t("info.ref.sun");
 
     // CURRENT real distance from the live Kepler solution — same dataset
@@ -166,14 +166,14 @@ export class InfoPanel {
     const liveDistLabel = !live
       ? MISSING_DISPLAY
       : isMoon
-        ? formatDistanceKm(live.r, refKo)
-        : formatDistanceAu(live.r, refKo);
+        ? formatDistanceKm(live.r, refLabel)
+        : formatDistanceAu(live.r, refLabel);
     const avgDistLabel =
       b.semiMajorAxis === undefined
         ? MISSING_DISPLAY
         : isMoon
-          ? formatDistanceKm(b.semiMajorAxis, refKo)
-          : formatDistanceAu(b.semiMajorAxis, refKo);
+          ? formatDistanceKm(b.semiMajorAxis, refLabel)
+          : formatDistanceAu(b.semiMajorAxis, refLabel);
 
     // Every label resolves through t() against the CURRENT language at
     // render time — the row table is rebuilt fresh, nothing is cached.
@@ -201,13 +201,13 @@ export class InfoPanel {
       [t("info.sizeMode"), this.scale.sizeModeLabel()],
     ];
     if (moons.length) {
-      rows.push([t("info.moons"), moons.map((m) => bilingualName(m.nameKo, m.nameEn)).join(", ")]);
+      rows.push([t("info.moons"), moons.map((m) => displayName(m.nameKo, m.nameEn)).join(", ")]);
     }
     const sepSet = new Set(Object.values(SEP_KEYS).map((k) => t(k)));
 
     this.content.replaceChildren();
     const h = document.createElement("h2");
-    h.textContent = bilingualName(b.nameKo, b.nameEn);
+    h.textContent = displayName(b.nameKo, b.nameEn);
     this.content.appendChild(h);
 
     const dl = document.createElement("dl");
