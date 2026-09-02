@@ -154,6 +154,25 @@ in `src/data/bodyTextures.ts`; loading is fallback-safe (a body whose map is
 missing or unreachable keeps the original procedural look — Pluto's four
 small moons have no real map at all, so they always use it).
 
+## The night sky (real stars)
+
+The background star field is the REAL sky: all 9,096 stars of the Yale
+Bright Star Catalogue (every star visible to the naked eye) at their true
+J2000 positions, with size/opacity following the actual V magnitude and a
+per-star tint from the B−V color index — Sirius is genuinely the brightest
+point, Betelgeuse is orange, constellations and the Milky Way's star band
+are where they belong. The equatorial catalog positions are rotated onto
+the ecliptic by the J2000 obliquity (23.439°) so the zodiac runs exactly
+along the planets' orbital plane, +Y is the north ecliptic pole and +X the
+vernal equinox — and the mapping is orientation-preserving (determinant
++1), so the sky reads correctly from inside, never mirrored like a star
+globe. Mobile keeps stars to mag ≤ 5.5 (~2.9k) for §16 performance.
+`scripts/star-catalog.test.mjs` pins the catalog contents (Sirius, Vega,
+Polaris… at their true coordinates and magnitudes) and the frame math.
+Note: the planets' orbital PHASES are deterministic-synthetic (golden-angle
+spread, no epoch), so star-vs-planet alignment carries no date meaning —
+the frame orientation is the astronomically faithful part.
+
 ## Data
 
 `src/data/solarSystemData.ts` is the single source of real data, and the
@@ -172,6 +191,7 @@ plus color and presentation metadata (`displayColor`, `render`).
 | S3 | JPL SSD Satellite Mean Elements / Phys Par — https://ssd.jpl.nasa.gov/sats/elem/sep.html, https://ssd.jpl.nasa.gov/sats/phys_par/sep.html | Moon orbital a (km), e, i, P (days), mean radius. Jupiter=JUP365, Saturn=SAT441, Uranus=URA182, Neptune=NEP097, Pluto=PLU060 (Brozović & Jacobson 2024) |
 | S4 | JPL SBDB API (134340 Pluto, DE441) — https://ssd-api.jpl.nasa.gov/sbdb.api?sstr=134340&phys-par=true | Pluto orbit a=39.6 AU, e=0.252, i=17.1° |
 | — | NASA Sun Facts — https://science.nasa.gov/sun/facts/ | Solar radius ≈695,700 km (diameter 1.4M km), equatorial rotation ≈25 days |
+| S5 | Yale Bright Star Catalogue, 5th Rev. Ed. (Hoffleit & Warren 1991) — CDS VizieR V/50, https://cdsarc.cds.unistra.fr/viz-bin/cat/V/50 | Background star field: J2000 RA/Dec, V magnitude and B−V color of all 9,096 catalog stars with coordinates (public domain; packed into `src/data/starCatalogData.ts` by `scripts/build-star-catalog.mjs`) |
 
 Conversion rules: years→days ×365.25, days→hours ×24. Everything else uses
 the raw source values. The Moon's orbital period equals its rotation period
@@ -240,6 +260,8 @@ src/
   data/validateSolarSystem.ts  # data-validation utility
   data/bodyTextures.ts         # body id → real NASA surface-map file (public/textures/)
   data/bodyNames.ts            # body id → localized display names (14 non-dataset languages)
+  data/starCatalog.ts          # Yale BSC decode + equatorial→ecliptic scene mapping (pure)
+  data/starCatalogData.ts      # generated: packed Yale Bright Star Catalogue (V/50)
   core/ScaleManager.ts         # real data → render-unit conversion (3 distance & 5 size modes)
   core/SimulationClock.ts      # speed / play / pause / reset
   core/Kepler.ts               # Kepler-equation solver & orbit-plane position (pure functions)

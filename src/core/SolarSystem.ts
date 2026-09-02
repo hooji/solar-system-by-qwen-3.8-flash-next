@@ -22,9 +22,35 @@ import { systemParentOf } from "./bodyIdentity";
 import type { ScaleManager } from "./ScaleManager";
 import { BODY_TEXTURE_FILES, RING_TEXTURE_FILES } from "../data/bodyTextures";
 import { loadColorTexture } from "./textures";
+import {
+  bvToRGB,
+  equatorialToSceneDirection,
+  loadStarCatalog,
+} from "../data/starCatalog";
 
 /** Seconds over which scale-mode / system changes are interpolated. */
 const TRANSITION_SECONDS = 0.7;
+
+/**
+ * Soft round point sprite for stars — THREE.Points rasterises square
+ * pixels, which reads as boxes at the bright buckets' 3+ px sizes; a
+ * radial-falloff sprite turns every star into a round, softly-glowing dot.
+ */
+function makeStarSprite(): THREE.CanvasTexture | null {
+  const size = 32;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+  const grad = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+  grad.addColorStop(0, "rgba(255,255,255,1)");
+  grad.addColorStop(0.4, "rgba(255,255,255,0.85)");
+  grad.addColorStop(1, "rgba(255,255,255,0)");
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, size, size);
+  return new THREE.CanvasTexture(canvas);
+}
 
 /** Procedural banded CanvasTexture — placeholder until the photo map loads. */
 function makeBandedTexture(base: string, bandColor: string): THREE.CanvasTexture | null {
@@ -86,7 +112,8 @@ export class SolarSystem {
   readonly orbits = new Map<string, OrbitRenderer>();
   readonly labelObjects = new Map<string, CSS2DObject>();
 
-  private starField: THREE.Points | null = null;
+  /** Real-sky star field: one THREE.Points per magnitude bucket. */
+  private starField: THREE.Group | null = null;
   private readonly disposables: { dispose(): void }[] = [];
   /** Ring meshes — extra raycast pick targets (userData.bodyId = planet id). */
   private readonly ringMeshes: THREE.Mesh[] = [];
@@ -238,30 +265,74 @@ export class SolarSystem {
     return mesh;
   }
 
-  private makeStarField(): THREE.Points | null {
+  /**
+   * The REAL night sky: every naked-eye star of the Yale Bright Star
+   * Catalogue at its true J2000 position, rotated onto the ecliptic frame
+   * the planets already use (scene XZ = ecliptic, +Y = north ecliptic
+   * pole, +X = vernal equinox; orientation-preserving, so constellations
+   * read correctly from inside — data/starCatalog.ts owns the math).
+   * Brightness follows V magnitude through size/opacity buckets (one
+   * THREE.Points per bucket keeps plain PointsMaterial — no custom
+   * shader); per-vertex color follows the B−V index. Mobile keeps only
+   * mag ≤ 5.5 (~2.9k stars, spec §16); note the planets' orbital PHASES
+   * are synthetic, so star-vs-planet alignment carries no epoch meaning —
+   * the frame orientation is what is astronomically faithful here.
+   */
+  private makeStarField(): THREE.Group {
+    // Outside the camera envelope (controls.maxDistance 1500), well inside
+    // the far plane (6000): the viewer is always inside the celestial sphere.
+    const RADIUS = 2500;
     const isMobile = /Android|iPhone|iPad/i.test(navigator.userAgent);
-    const count = isMobile ? 1200 : 3500; // spec §16: reduce density on mobile
-    const positions = new Float32Array(count * 3);
-    for (let i = 0; i < count; i++) {
-      const radius = 900 + Math.random() * 900;
-      const theta = Math.random() * Math.PI * 2;
-      const phi = Math.acos(2 * Math.random() - 1);
-      positions[i * 3] = radius * Math.sin(phi) * Math.cos(theta);
-      positions[i * 3 + 1] = radius * Math.cos(phi);
-      positions[i * 3 + 2] = radius * Math.sin(phi) * Math.sin(theta);
+    const magLimit = isMobile ? 5.5 : Infinity;
+    const cat = loadStarCatalog();
+
+    // [max Vmag, point size px, opacity] — brighter bucket: bigger, denser.
+    const BUCKETS: [number, number, number][] = [
+      [0.5, 3.6, 1.0],
+      [1.5, 3.0, 0.95],
+      [2.5, 2.4, 0.9],
+      [3.5, 1.9, 0.8],
+      [4.5, 1.5, 0.65],
+      [5.5, 1.2, 0.5],
+      [Infinity, 1.0, 0.38],
+    ];
+    const positions: number[][] = BUCKETS.map(() => []);
+    const colors: number[][] = BUCKETS.map(() => []);
+    const dir = { x: 0, y: 0, z: 0 };
+    for (let i = 0; i < cat.count; i++) {
+      const mag = cat.mag[i] ?? 99;
+      if (mag > magLimit) continue;
+      const bucket = BUCKETS.findIndex(([maxMag]) => mag <= maxMag);
+      equatorialToSceneDirection(cat.raDeg[i] ?? 0, cat.decDeg[i] ?? 0, dir);
+      positions[bucket]?.push(dir.x * RADIUS, dir.y * RADIUS, dir.z * RADIUS);
+      const [r, g, b] = bvToRGB(cat.bv[i] ?? 0.4);
+      colors[bucket]?.push(r, g, b);
     }
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
-    const mat = new THREE.PointsMaterial({
-      color: 0xffffff,
-      size: 1.4,
-      sizeAttenuation: false,
-      transparent: true,
-      opacity: 0.8,
-      depthWrite: false,
+
+    const group = new THREE.Group();
+    group.name = "starfield";
+    const sprite = makeStarSprite();
+    if (sprite) this.disposables.push(sprite);
+    BUCKETS.forEach(([, size, opacity], idx) => {
+      const pos = positions[idx];
+      const col = colors[idx];
+      if (!pos || pos.length === 0 || !col) return;
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+      geo.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
+      const mat = new THREE.PointsMaterial({
+        size: sprite ? size * 1.6 : size, // sprite falloff eats the edge
+        sizeAttenuation: false,
+        vertexColors: true,
+        transparent: true,
+        opacity,
+        depthWrite: false,
+        ...(sprite ? { map: sprite } : {}),
+      });
+      this.disposables.push(geo, mat);
+      group.add(new THREE.Points(geo, mat));
     });
-    this.disposables.push(geo, mat);
-    return new THREE.Points(geo, mat);
+    return group;
   }
 
   /** Min/max real moon orbit distance (km) per parent — drives local log map. */
@@ -415,7 +486,11 @@ export class SolarSystem {
   }
 
   setStarFieldVisible(visible: boolean): void {
-    if (this.starField) this.starField.visible = visible;
+    if (!this.starField) return;
+    this.starField.visible = visible;
+    // Also stamp each magnitude-bucket Points: verification probes read
+    // Points.visible directly (main.ts VITE_VERIFY starsVisible).
+    for (const child of this.starField.children) child.visible = visible;
   }
 
   setOrbitsVisible(visible: boolean): void {
