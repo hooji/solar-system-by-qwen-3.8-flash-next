@@ -21,7 +21,7 @@ import type { ScaleManager } from "../core/ScaleManager";
 import { ellipseOf } from "../core/ScaleManager";
 import {
   MISSING_DISPLAY,
-  displayName,
+  bodyDisplayName,
   fmt,
   formatDistanceAu,
   formatDistanceKm,
@@ -147,7 +147,7 @@ export class InfoPanel {
 
   /** Tooltip caption: current-language name · localised type (t_292b0645). */
   private renderTooltipText(b: CelestialBodyData, lang?: Lang): void {
-    this.tooltip.textContent = `${displayName(b.nameKo, b.nameEn, lang)} · ${t(TYPE_KEYS[b.type], undefined, lang)}`;
+    this.tooltip.textContent = `${bodyDisplayName(b, lang)} · ${t(TYPE_KEYS[b.type], undefined, lang)}`;
   }
 
   private render(b: CelestialBodyData): void {
@@ -156,7 +156,7 @@ export class InfoPanel {
     const isMoon = b.type === "moon";
     const parent = b.parentId ? getBodyById(b.parentId) : undefined;
     const refLabel = isMoon
-      ? t("info.ref.moon", { name: displayName(parent?.nameKo, parent?.nameEn) })
+      ? t("info.ref.moon", { name: bodyDisplayName(parent) })
       : t("info.ref.sun");
 
     // CURRENT real distance from the live Kepler solution — same dataset
@@ -201,13 +201,13 @@ export class InfoPanel {
       [t("info.sizeMode"), this.scale.sizeModeLabel()],
     ];
     if (moons.length) {
-      rows.push([t("info.moons"), moons.map((m) => displayName(m.nameKo, m.nameEn)).join(", ")]);
+      rows.push([t("info.moons"), moons.map((m) => bodyDisplayName(m)).join(", ")]);
     }
     const sepSet = new Set(Object.values(SEP_KEYS).map((k) => t(k)));
 
     this.content.replaceChildren();
     const h = document.createElement("h2");
-    h.textContent = displayName(b.nameKo, b.nameEn);
+    h.textContent = bodyDisplayName(b);
     this.content.appendChild(h);
 
     const dl = document.createElement("dl");

@@ -24,7 +24,7 @@ import {
   type CelestialBodyData,
 } from "../data/solarSystemData";
 import { t, type Lang } from "../ui/i18n";
-import { displayName } from "../ui/format";
+import { bodyDisplayName } from "../ui/format";
 import { ellipsePlanePosition } from "./Kepler";
 import { systemParentOf } from "./bodyIdentity";
 
@@ -394,7 +394,7 @@ export class ScaleManager {
     if (this.distanceMode === "linear") return t("scale.dist.linear", undefined, lang);
     const anchor = this.focusAnchorId ? getBodyById(this.focusAnchorId) : undefined;
     return anchor
-      ? t("scale.dist.focus", { name: displayName(anchor.nameKo, anchor.nameEn, lang) }, lang)
+      ? t("scale.dist.focus", { name: bodyDisplayName(anchor, lang) }, lang)
       : t("scale.dist.focusSun", undefined, lang);
   }
 
@@ -465,7 +465,7 @@ export class ScaleManager {
 
 /** Current-language name of a possibly-missing body ("?" placeholder). */
 function nameOf(body: CelestialBodyData | undefined): string {
-  return body ? displayName(body.nameKo, body.nameEn) : "?";
+  return body ? bodyDisplayName(body) : "?";
 }
 
 /** Real plane position (AU) of a heliocentric body at simDays (shared helper). */

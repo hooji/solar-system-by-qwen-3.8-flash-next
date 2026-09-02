@@ -14,7 +14,7 @@ Three.js 기반의 브라우저용 인터랙티브 태양계 시각화입니다.
 - 거리 스케일 3종(Log 기본·Linear·Focus), 크기 스케일 5종(Enhanced·Huge 기본(향상 ×3)·Gigantic(×10)·Relative·Uniform), 모드 전환은 0.7초 ease-in-out 보간
 - 전 행성·주요 위성·명왕성/카론에 실제 NASA 촬영 기반 표면 텍스처 적용(`public/textures/`, 출처는 `public/textures/ATTRIBUTION.md`)
 - 천체 클릭 선택 + 카메라 포커스 트윈, 호버 툴팁, 빈 공간 더블클릭으로 해제
-- 한/영 언어 토글(기본 영어), 천체 이름은 현재 선택 언어로만 표시, 패널 개별 접기·`H` 단축키 전체 숨김/복원, 접힌 상태에서도 선택 시 인포 패널 자동 복구
+- 8개 표시 언어(English·한국어·日本語·中文·Français·Deutsch·Español·العربية, 기본 영어)를 국기 버튼으로 전환(아랍어는 RTL), 천체 이름은 현재 선택 언어로만 표시, 패널 개별 접기·`H` 단축키 전체 숨김/복원, 접힌 상태에서도 선택 시 인포 패널 자동 복구
 - 이름표·인포 패널의 실데이터/렌더값 분리 표시, km↔AU 동일 환산 상수 사용
 - 상태(언어·패널 토글)는 브라우저 `localStorage`에만 저장, 서버 통신 없음
 
@@ -109,6 +109,7 @@ src/
   data/solarSystemData.ts      # 실데이터 (단일 소스)
   data/validateSolarSystem.ts  # 데이터 검증 유틸
   data/bodyTextures.ts         # 천체 id → 실사 표면 텍스처 파일 매핑
+  data/bodyNames.ts            # 천체 id → 언어별 표시 이름 (ja/zh/fr/de/es/ar)
   core/                        # ScaleManager, SimulationClock, Kepler, simMath,
                                # SolarSystem, CameraTween, CelestialBody, textures,
                                # OrbitRenderer, bodyIdentity, pickCoords, pointerGesture

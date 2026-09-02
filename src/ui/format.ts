@@ -23,6 +23,7 @@
  * these real-value formatters.
  */
 import { getLang, t, type Lang } from "./i18n";
+import { BODY_NAMES } from "../data/bodyNames";
 
 /** Exact IAU astronomical unit in km — the only conversion constant allowed. */
 export const KM_PER_AU = 149_597_870.7;
@@ -112,10 +113,12 @@ export function formatRotationHours(hours: number | undefined, lang: Lang = getL
 }
 
 /**
- * Body display name — the CURRENT language's name ONLY (선택 언어 단일 표기):
- * ko mode shows "목성", EN mode shows "Jupiter". If the selected language's
- * name is missing, the other language's name stands in (a real name beats a
- * placeholder); only when both are missing does MISSING_DISPLAY render.
+ * Raw name-pair rule — the CURRENT language's dataset name ONLY: ko mode
+ * shows "목성", every other mode shows the English dataset name (localized
+ * overrides for the other languages are bodyDisplayName's job, which needs
+ * the body id). If the selected side is missing, the other stands in (a
+ * real name beats a placeholder); only when both are missing does
+ * MISSING_DISPLAY render.
  */
 export function displayName(
   nameKo: string | undefined,
@@ -124,7 +127,27 @@ export function displayName(
 ): string {
   const ko = nameKo?.trim() || "";
   const en = nameEn?.trim() || "";
-  const preferred = lang === "en" ? en : ko;
-  const fallback = lang === "en" ? ko : en;
+  const preferred = lang === "ko" ? ko : en;
+  const fallback = lang === "ko" ? en : ko;
   return preferred || fallback || MISSING_DISPLAY;
+}
+
+/** The minimal body shape a display name needs (any dataset body fits). */
+export interface NamedBody {
+  id: string;
+  nameKo?: string;
+  nameEn?: string;
+}
+
+/**
+ * Body display name in the CURRENT language: the data/bodyNames.ts entry
+ * for `lang` wins; a language without an entry for this body falls back to
+ * the dataset pair via displayName (English for every non-Korean language),
+ * so a partial translation degrades to a real name, never a placeholder.
+ * `undefined` body → MISSING_DISPLAY (missing parent etc.).
+ */
+export function bodyDisplayName(body: NamedBody | undefined, lang: Lang = getLang()): string {
+  if (!body) return MISSING_DISPLAY;
+  const localized = BODY_NAMES[lang]?.[body.id];
+  return localized ?? displayName(body.nameKo, body.nameEn, lang);
 }
