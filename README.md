@@ -1,5 +1,10 @@
 # QW Solar — Log-Scale Solar System Demo
 
+### ▶ [Launch the app](https://claude.ai/code/artifact/5135e079-986e-4779-bc97-82a03b6b064d) — runs right in your browser, nothing to install
+
+(Prefer to run it locally? Grab a ready-made build from the
+[latest release](../../releases/latest) — see [Running](#running).)
+
 An interactive solar-system visualization built on Three.js. The Sun through
 Pluto and the major moons are rendered from real astronomical data, with
 separate render scales applied to distances and sizes for on-screen
