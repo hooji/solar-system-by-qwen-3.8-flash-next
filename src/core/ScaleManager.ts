@@ -136,6 +136,18 @@ export class ScaleManager {
   }
 
   /**
+   * True only for the SELECTED system's parent: the spec §13 moon-band boost
+   * (×systemMoonBoost) applies to that one system. Selecting a planet must
+   * never move ANOTHER planet's moons — the boost used to key on the global
+   * systemBoostActive flag, so zooming into Mars visibly pushed Saturn's and
+   * Jupiter's outer moons ×2.2 further out (the "stray dots near other
+   * planets" artifact, amplified by the huge/gigantic sizes).
+   */
+  moonBoostActiveFor(parentId: string | undefined): boolean {
+    return this.systemBoostActive && parentId !== undefined && parentId === this.selectedParentId();
+  }
+
+  /**
    * Radial log/linear mapping (spec §4). In focus mode this returns the
    * anchor-relative mapping instead, so callers that only know |r| degrade
    * gracefully; bodies with full plane coordinates use mapHeliocentricPoint.
@@ -237,13 +249,18 @@ export class ScaleManager {
    * inner edge clears the parent's VISUAL surface (×1.4) and the outer edge
    * stays a real band (≥ ×1.7 of the inner edge). For the 1× modes
    * (enhanced/relative/uniform) this reduces exactly to the original
-   * 2.5×–9× (× systemMoonBoost while selected) rule.
+   * 2.5×–9× rule (× systemMoonBoost for the SELECTED system only —
+   * moonBoostActiveFor; other systems' moons never move on selection).
    */
-  private moonBand(parentRenderRadius: number): { minR: number; maxR: number } {
+  private moonBand(
+    parentRenderRadius: number,
+    parentId: string | undefined,
+  ): { minR: number; maxR: number } {
     const mult = SIZE_MODE_MULTIPLIER[this.sizeMode] ?? 1;
     const layoutR = parentRenderRadius / mult;
     const minR = Math.max(2.5 * layoutR, 1.4 * parentRenderRadius);
-    const boosted = 9 * layoutR * (this.systemBoostActive ? this.cfg.systemMoonBoost : 1);
+    const boosted =
+      9 * layoutR * (this.moonBoostActiveFor(parentId) ? this.cfg.systemMoonBoost : 1);
     return { minR, maxR: Math.max(boosted, minR * 1.7) };
   }
 
@@ -267,8 +284,9 @@ export class ScaleManager {
     minDistanceKm: number,
     maxDistanceKm: number,
     parentRenderRadius: number,
+    parentId?: string,
   ): number {
-    const { minR, maxR } = this.moonBand(parentRenderRadius);
+    const { minR, maxR } = this.moonBand(parentRenderRadius, parentId);
     const shifted = Math.max(0, distanceKm - minDistanceKm);
     const shiftedMax = Math.max(1, maxDistanceKm - minDistanceKm);
     const normalized = Math.log1p(shifted) / Math.log1p(shiftedMax);
@@ -292,11 +310,18 @@ export class ScaleManager {
     minDistanceKm: number,
     maxDistanceKm: number,
     parentRenderRadius: number,
+    parentId?: string,
   ): number {
     const a = Math.max(semiMajorAxisKm, 1e-9);
     const e = THREE.MathUtils.clamp(eccentricity, 0, 0.999);
-    const { maxR } = this.moonBand(parentRenderRadius);
-    const size = this.mapSatelliteDistance(a, minDistanceKm, maxDistanceKm, parentRenderRadius);
+    const { maxR } = this.moonBand(parentRenderRadius, parentId);
+    const size = this.mapSatelliteDistance(
+      a,
+      minDistanceKm,
+      maxDistanceKm,
+      parentRenderRadius,
+      parentId,
+    );
     return Math.min(size / a, maxR / (a * (1 + e)));
   }
 
@@ -314,6 +339,7 @@ export class ScaleManager {
     minDistanceKm: number,
     maxDistanceKm: number,
     parentRenderRadius: number,
+    parentId?: string,
   ): number {
     return (
       this.satelliteOrbitScale(
@@ -322,6 +348,7 @@ export class ScaleManager {
         minDistanceKm,
         maxDistanceKm,
         parentRenderRadius,
+        parentId,
       ) * radiusKm
     );
   }
@@ -447,6 +474,7 @@ export class ScaleManager {
           range.minKm,
           range.maxKm,
           parentRenderRadius,
+          body.parentId,
         ),
         fromLabel: t("scale.from.parent", {
           name: nameOf(getBodyById(body.parentId ?? "")),

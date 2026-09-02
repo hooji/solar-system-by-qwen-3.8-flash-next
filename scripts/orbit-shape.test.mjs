@@ -352,6 +352,68 @@ t("huge/gigantic: moon band stays layout-anchored, clear of the enlarged surface
   assert.ok(Math.abs(sc1.mapSatelliteDistance(ra, rp, ra, PARENT_R) - PARENT_R * 9) < 1e-9);
 });
 
+// ---------------------------------------------------------------------------
+// 10. Positioning isolation (user-reported zoom artifact): the size modes
+//     are pure body-size zooms — heliocentric CENTERS are bit-identical in
+//     every size mode and selection state, and the §13 moon-band boost is
+//     per-system: selecting one planet never moves another system's moons.
+// ---------------------------------------------------------------------------
+t("size modes and selection NEVER move heliocentric planet centers", () => {
+  const pts = [
+    { x: 0.31, y: -0.22, r: Math.hypot(0.31, -0.22) }, // Mercury-ish
+    { x: 3.2, y: 4.1, r: Math.hypot(3.2, 4.1) }, // Jupiter-ish
+    { x: -29.5, y: 8.7, r: Math.hypot(-29.5, 8.7) }, // Neptune-ish
+  ];
+  for (const dist of ["log", "linear"]) {
+    const base = new ScaleManager({});
+    base.distanceMode = dist;
+    base.sizeMode = "enhanced";
+    for (const p of pts) {
+      const want = { x: 0, cz: 0 };
+      base.mapHeliocentricPlanePoint(p, null, want);
+      for (const size of ["huge", "gigantic", "relative", "uniform"]) {
+        for (const sel of [null, "mars", "io"]) {
+          const sc = new ScaleManager({});
+          sc.distanceMode = dist;
+          sc.sizeMode = size;
+          sc.selectedId = sel;
+          const got = { x: 0, cz: 0 };
+          sc.mapHeliocentricPlanePoint(p, null, got);
+          assert.equal(got.x, want.x, `${dist}/${size}/sel=${sel}: x moved`);
+          assert.equal(got.cz, want.cz, `${dist}/${size}/sel=${sel}: cz moved`);
+        }
+      }
+    }
+  }
+});
+
+t("the §13 moon-band boost applies ONLY to the selected system", () => {
+  const mk = (sel) => {
+    const sc = new ScaleManager({});
+    sc.sizeMode = "huge"; // app default — where the artifact was visible
+    sc.selectedId = sel;
+    return sc;
+  };
+  const P = 2.51 * 3; // a huge-mode parent visual radius (Saturn-ish)
+  const outerFor = (sc, parentId) => sc.mapSatelliteDistance(ra, rp, ra, P, parentId);
+  const baseline = outerFor(mk(null), "saturn");
+  // Selecting Mars (a planet) or Io (Jupiter's moon) leaves Saturn's moons
+  // EXACTLY where they were — this was the zoom-in artifact: the boost used
+  // to key on the global "something is selected" flag.
+  assert.equal(outerFor(mk("mars"), "saturn"), baseline, "mars selection moved saturn's moons");
+  assert.equal(outerFor(mk("io"), "saturn"), baseline, "io selection moved saturn's moons");
+  // …while the SELECTED system's own band still gets the ×2.2 detail boost
+  // (planet selection boosts itself; moon selection boosts its parent).
+  assert.ok(outerFor(mk("mars"), "mars") > baseline * 2, "selected planet band not boosted");
+  assert.ok(outerFor(mk("io"), "jupiter") > baseline * 2, "selected moon's parent band not boosted");
+  // The drawn orbit line follows the same per-system rule (line ≡ body).
+  assert.equal(
+    mk("mars").satelliteOrbitScale(a, e, rp, ra, P, "saturn"),
+    mk(null).satelliteOrbitScale(a, e, rp, ra, P, "saturn"),
+    "selection changed another system's drawn orbit scale",
+  );
+});
+
 console.log(
   `\n# ${n} tests passed — FIXED contract confirmed: one uniform radial scale per satellite orbit (ScaleManager.mapSatelliteOrbitRadius), θ and a:b and e preserved exactly, apoapsis capped at the 9×(×2.2 boost) band, line ≡ body in every distance mode. Pre-fix cardioid fingerprint (e′ 7.7×, latus +119 %, residual 0.895, axis flip) is gone.`,
 );

@@ -65,7 +65,10 @@ export class OrbitRenderer {
     const needsAnchor = !isMoon && scale.focusActive && !!anchor;
     const signature = [
       scale.distanceMode,
-      `${scale.systemBoostActive}`,
+      // The §13 band boost is PER SYSTEM (moonBoostActiveFor): only the
+      // selected parent's moon lines change on selection — other systems'
+      // lines (and heliocentric lines) must not rebuild, let alone move.
+      isMoon ? `${scale.moonBoostActiveFor(d.parentId)}` : "",
       isMoon ? `${parentRenderRadius.toFixed(3)}|${moonRange?.minKm}|${moonRange?.maxKm}` : "",
       // Moon lines are parent-local and anchor-independent — don't rebuild
       // them on the anchor's per-frame drift (spec §16).
@@ -107,6 +110,7 @@ export class OrbitRenderer {
           moonRange.minKm,
           moonRange.maxKm,
           parentRenderRadius,
+          d.parentId,
         );
         const th = Math.atan2(py, px);
         x = dist * Math.cos(th);

@@ -183,7 +183,9 @@ printed to the console in DEV mode.
   (t_5a546f13 diagnosis, t_d17906bf fix, docs/orbit-shape-diagnosis.md).
   Selecting a planet expands its parent-system band 2.2× (spec §13 detail
   view); that expansion is also an isotropic scale, so the shape stays the
-  same.
+  same — and it applies to the SELECTED system only: selecting a body never
+  moves another planet's moons, and no size mode or selection ever moves a
+  heliocentric planet center (both pinned by `scripts/orbit-shape.test.mjs`).
 - **Size (enhanced)**: `clamp(0.55 + 0.65·√(R/R⊕), 0.55, 4.0)`, moons
   `clamp(0.16 + 0.4·√(R/R⊕), 0.16, 0.75)`, the Sun a separate fixed 8
 - **Size (huge, default / gigantic)**: the enhanced mapping ×3 / ×10

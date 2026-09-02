@@ -279,6 +279,7 @@ function focusFrameFor(id: string): FocusInput | null {
         range.minKm,
         range.maxKm,
         parentEffective,
+        systemKey,
       );
     }
   }
