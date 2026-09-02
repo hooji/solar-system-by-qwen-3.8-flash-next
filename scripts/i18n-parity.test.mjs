@@ -43,7 +43,7 @@ function parityIssues(ko, en) {
 // --- (1) key parity ------------------------------------------------------------
 
 test("EVERY language dictionary carries EXACTLY the ko key set", () => {
-  assert.ok(LANGS.length >= 8, `expected the full language roster, got ${LANGS.join(",")}`);
+  assert.ok(LANGS.length >= 16, `expected the full language roster, got ${LANGS.join(",")}`);
   for (const lang of LANGS) {
     if (lang === "ko") continue;
     const issues = parityIssues(MESSAGES.ko, MESSAGES[lang]);
@@ -159,7 +159,7 @@ test("default language is English with no stored value", () => {
 });
 
 test("invalid stored values are rejected and fall back to English", () => {
-  for (const bad of ["pt", "", "KR", "korean", "null", "ko-KR!!", "EN", "ja-JP"]) {
+  for (const bad of ["sv", "", "KR", "korean", "null", "ko-KR!!", "EN", "ja-JP"]) {
     const s = installStorage(bad);
     try {
       assert.equal(loadLang(), "en", `stored "${bad}" must not select a language`);
@@ -257,11 +257,12 @@ test("t() on a runtime-injected key that en lacks returns a visible placeholder"
 });
 
 test("isLang accepts only the declared languages", () => {
-  for (const l of ["en", "ko", "ja", "zh", "fr", "de", "es", "ar"]) {
+  for (const l of ["en", "ko", "ja", "zh", "fr", "de", "es", "ar", "pt", "it", "nl", "ru", "tr", "id", "vi", "hi"]) {
     assert.equal(isLang(l), true, l);
   }
-  assert.equal(isLang("pt"), false);
+  assert.equal(isLang("sv"), false);
   assert.equal(isLang("EN"), false);
+  assert.equal(isLang("pt-BR"), false);
   assert.equal(isLang(undefined), false);
 });
 
