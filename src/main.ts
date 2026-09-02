@@ -476,7 +476,7 @@ const controlPanel = new ControlPanel(viewport, {
     focusOn(null);
     info.hide();
   },
-});
+}, { distanceMode: scale.distanceMode, sizeMode: scale.sizeMode });
 
 // Register panels with the overlay toggle system (t_30700e13).
 overlay.register("control", controlPanel.element);
@@ -650,7 +650,7 @@ if (import.meta.env.VITE_VERIFY === "1") {
       solar.animateScaleChange();
       reframeCamera(); // same unified focus path as the UI (t_31402ac4)
     },
-    setSizeMode: (m: "enhanced" | "relative" | "uniform") => {
+    setSizeMode: (m: import("./core/ScaleManager").SizeMode) => {
       scale.sizeMode = m;
       solar.animateScaleChange();
     },

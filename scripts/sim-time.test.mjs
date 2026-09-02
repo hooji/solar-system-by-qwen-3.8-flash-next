@@ -245,16 +245,16 @@ t("clock: huge real-time gaps clamp (tab was backgrounded)", () => {
 t("clock presets cover the suggested ladder 1d…1y per second", () => {
   const v = TIME_SCALE_PRESETS.map((p) => p.daysPerSecond);
   assert.deepEqual(v, [1, 10, 100, 365.25]);
-  assert.equal(timeScaleLabel(365.25), "1초 = 1년");
-  assert.match(timeScaleLabel(7), /1초 = 7일/);
+  assert.equal(timeScaleLabel(365.25), "1s = 1 year");
+  assert.match(timeScaleLabel(7), /1s = 7 days/);
 });
 
-t("speed labels localize: EN preset + generated, ko stays the default", () => {
-  assert.equal(timeScaleLabel(365.25, "en"), "1s = 1 year");
-  assert.equal(timeScaleLabel(1, "en"), "1s = 1 day");
-  assert.equal(timeScaleLabel(7, "en"), "1s = 7 days");
-  assert.equal(timeScaleLabel(0.5, "en"), "1s = 12 hours");
-  assert.equal(timeScaleLabel(0.5), "1초 = 12시간", "ko default without an explicit language");
+t("speed labels localize: ko preset + generated, EN is the app default", () => {
+  assert.equal(timeScaleLabel(365.25, "ko"), "1초 = 1년");
+  assert.equal(timeScaleLabel(1, "ko"), "1초 = 1일");
+  assert.equal(timeScaleLabel(7, "ko"), "1초 = 7일");
+  assert.equal(timeScaleLabel(0.5, "ko"), "1초 = 12시간");
+  assert.equal(timeScaleLabel(0.5), "1s = 12 hours", "EN default without an explicit language");
 });
 
 t("extreme speed: at max preset the whole Pluto orbit advances in <1 min real", () => {

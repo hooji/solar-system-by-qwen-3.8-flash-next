@@ -139,20 +139,20 @@ test("PARITY DETECTOR fails on an empty translation", () => {
 
 // --- (2) language state --------------------------------------------------------
 
-test("default language is Korean with no stored value", () => {
+test("default language is English with no stored value", () => {
   const s = installStorage("empty");
   try {
-    assert.equal(loadLang(), "ko");
+    assert.equal(loadLang(), "en");
   } finally {
     s.dispose();
   }
 });
 
-test("invalid stored values are rejected and fall back to Korean", () => {
+test("invalid stored values are rejected and fall back to English", () => {
   for (const bad of ["fr", "", "KR", "korean", "null", "ko-KR!!"]) {
     const s = installStorage(bad);
     try {
-      assert.equal(loadLang(), "ko", `stored "${bad}" must not select a language`);
+      assert.equal(loadLang(), "en", `stored "${bad}" must not select a language`);
       assert.equal(parseLang(bad), null);
     } finally {
       s.dispose();
@@ -160,11 +160,11 @@ test("invalid stored values are rejected and fall back to Korean", () => {
   }
 });
 
-test("storage access failure (private mode) still loads Korean safely", () => {
+test("storage access failure (private mode) still loads English safely", () => {
   const s = installStorage("throw");
   try {
-    assert.equal(loadLang(), "ko");
-    assert.doesNotThrow(() => saveLang("en")); // save swallows the error, app keeps running
+    assert.equal(loadLang(), "en");
+    assert.doesNotThrow(() => saveLang("ko")); // save swallows the error, app keeps running
   } finally {
     s.dispose();
   }

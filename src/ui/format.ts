@@ -112,17 +112,19 @@ export function formatRotationHours(hours: number | undefined, lang: Lang = getL
 }
 
 /**
- * Bilingual name pair — BOTH names always visible (project rule); the
- * language mode only picks which leads (t_8701c121): ko mode keeps the
- * original "목성 · Jupiter", EN mode reads "Jupiter · 목성". Empty/missing
- * side → MISSING_DISPLAY in either mode.
+ * Body display name — the CURRENT language's name ONLY (선택 언어 단일 표기):
+ * ko mode shows "목성", EN mode shows "Jupiter". If the selected language's
+ * name is missing, the other language's name stands in (a real name beats a
+ * placeholder); only when both are missing does MISSING_DISPLAY render.
  */
-export function bilingualName(
+export function displayName(
   nameKo: string | undefined,
   nameEn: string | undefined,
   lang: Lang = getLang(),
 ): string {
-  const ko = nameKo?.trim() || MISSING_DISPLAY;
-  const en = nameEn?.trim() || MISSING_DISPLAY;
-  return lang === "en" ? `${en} · ${ko}` : `${ko} · ${en}`;
+  const ko = nameKo?.trim() || "";
+  const en = nameEn?.trim() || "";
+  const preferred = lang === "en" ? en : ko;
+  const fallback = lang === "en" ? ko : en;
+  return preferred || fallback || MISSING_DISPLAY;
 }

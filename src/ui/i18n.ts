@@ -12,10 +12,10 @@
  *     and subscribe through `onLangChange` — later panel-localisation tasks
  *     reuse this API instead of hardcoding.
  *
- * Default language is Korean. The explicit EN/한국어 choice persists under
+ * Default language is English. The explicit EN/한국어 choice persists under
  * LANGUAGE_STORAGE_KEY and is restored on reload. A missing value, an
  * invalid value, or a storage access failure (private mode / disabled) all
- * fall back to Korean safely — same tolerance pattern as overlayState.ts.
+ * fall back to English safely — same tolerance pattern as overlayState.ts.
  */
 
 export const LANGS = ["ko", "en"] as const;
@@ -90,11 +90,10 @@ const KO = {
   "info.distMode": "거리 표현",
   "info.sizeMode": "크기 표현",
   "info.moons": "위성 목록",
-  // The bilingual pair keeps BOTH names in every language (project rule);
-  // each template fixes its OWN natural name order, so the dictionary —
-  // not code branches — decides which name leads.
-  "info.ref.moon": "{ko}({en}) 기준",
-  "info.ref.sun": "태양(Sun) 기준",
+  // Body names render in the CURRENT language only ({name} is resolved by
+  // the caller through displayName) — never as a bilingual pair.
+  "info.ref.moon": "{name} 기준",
+  "info.ref.sun": "태양 기준",
   "type.star": "항성",
   "type.planet": "행성",
   "type.dwarf-planet": "왜소행성",
@@ -106,6 +105,8 @@ const KO = {
   "scale.dist.focus": "포커스 스케일 — {name} 중심 (focus scale)",
   "scale.dist.focusSun": "포커스 스케일 — 태양 중심",
   "scale.size.enhanced": "가시성 향상 크기 (enhanced)",
+  "scale.size.huge": "거대 크기 (huge, 향상 ×3)",
+  "scale.size.gigantic": "초거대 크기 (gigantic, 향상 ×10)",
   "scale.size.relative": "상대 크기 강조 (relative)",
   "scale.size.uniform": "균일 마커 (uniform)",
   "scale.from.parent": "{name} 기준 (parent-local)",
@@ -208,9 +209,9 @@ const EN: Record<MessageKey, string> = {
   "info.distMode": "Distance display",
   "info.sizeMode": "Size display",
   "info.moons": "Moons",
-  // Bilingual pair in BOTH languages; EN template leads with the English
-  // name (the ko/en tokens name the DATA fields, not the display language).
-  "info.ref.moon": "relative to {en} ({ko})",
+  // Body names render in the CURRENT language only ({name} is resolved by
+  // the caller through displayName).
+  "info.ref.moon": "relative to {name}",
   "info.ref.sun": "relative to the Sun",
   "type.star": "Star",
   "type.planet": "Planet",
@@ -222,6 +223,8 @@ const EN: Record<MessageKey, string> = {
   "scale.dist.focus": "Focus scale — centred on {name}",
   "scale.dist.focusSun": "Focus scale — centred on the Sun",
   "scale.size.enhanced": "Enhanced visibility size",
+  "scale.size.huge": "Huge size (enhanced ×3)",
+  "scale.size.gigantic": "Gigantic size (enhanced ×10)",
   "scale.size.relative": "Relative size emphasis",
   "scale.size.uniform": "Uniform markers",
   "scale.from.parent": "from {name} (parent-local)",
@@ -250,12 +253,12 @@ export function parseLang(raw: string | null | undefined): Lang | null {
   return isLang(raw) ? raw : null;
 }
 
-/** Stored choice, or Korean when nothing valid/reachable is stored. */
+/** Stored choice, or English when nothing valid/reachable is stored. */
 export function loadLang(): Lang {
   try {
-    return parseLang(window.localStorage.getItem(LANGUAGE_STORAGE_KEY)) ?? "ko";
+    return parseLang(window.localStorage.getItem(LANGUAGE_STORAGE_KEY)) ?? "en";
   } catch {
-    return "ko"; // private mode / disabled storage — still Korean, still works
+    return "en"; // private mode / disabled storage — still English, still works
   }
 }
 
@@ -269,7 +272,7 @@ export function saveLang(lang: Lang): void {
 
 // --- current-language state ---------------------------------------------------
 
-let current: Lang = "ko"; // default until main.ts restores the stored choice
+let current: Lang = "en"; // default until main.ts restores the stored choice
 
 type LangListener = (lang: Lang) => void;
 const listeners = new Set<LangListener>();

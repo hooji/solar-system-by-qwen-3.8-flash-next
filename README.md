@@ -3,8 +3,10 @@
 An interactive solar-system visualization built on Three.js. The Sun through
 Pluto and the major moons are rendered from real astronomical data, with
 separate render scales applied to distances and sizes for on-screen
-readability. Original requirements: `docs/THREEJS_SOLAR_DEMO_PROMPT.md`
-(all sections 1–18 followed in full).
+readability. Every body with a real photographic global map (NASA imagery —
+see `public/textures/ATTRIBUTION.md`) renders with its actual surface.
+Original requirements: `docs/THREEJS_SOLAR_DEMO_PROMPT.md` (all sections
+1–18 followed in full).
 
 ## Running
 
@@ -39,9 +41,10 @@ frame.
 ## Panel visibility and hotkeys
 
 - Switch the panel language with the `EN / 한국어` toggle at the bottom-left
-  of the header. The choice is saved in `localStorage["qwsolar.language.v1"]`
-  and restored after a reload, and it fails safe to Korean when no stored
-  value exists, the stored value is invalid, or storage access fails.
+  of the header. English is the default; the choice is saved in
+  `localStorage["qwsolar.language.v1"]` and restored after a reload, and it
+  fails safe to English when no stored value exists, the stored value is
+  invalid, or storage access fails.
   (Base task t_00139ab5 — the Korean/English key symmetry is enforced by the
   i18n-parity check in `npm test`.)
 - When switching, the translation covers every panel, not just the header and
@@ -49,16 +52,14 @@ frame.
   and the `Now … · playing` readout, info row names and separators,
   scale-mode names, dock buttons, restore chips and their `title` attributes,
   and even the collapse/expand buttons' aria-labels all re-render immediately
-  through dictionary lookup. Developer logs are not translated. Real-data
-  values also follow a per-language priority (t_8701c121): Korean mode keeps
-  the existing Korean/English paired wording and unit text as-is, while EN
-  mode leads with English — e.g. `Jupiter · 목성`, `11.86 years
-  (4,333 days)` — and the on-screen name labels swap their line order too.
-  Both names and both unit notations (km/AU) always appear together in any
-  language, and numbers, conversions, and tilt/scale calculations stay
-  identical regardless of language (the display layer changes only). Label
-  show/hide and the bilingual-pairing toggle keep working independently of
-  the language toggle.
+  through dictionary lookup. Developer logs are not translated. Body names
+  render in the CURRENT language only: EN mode shows `Jupiter`, Korean mode
+  shows `목성` — in the on-screen labels, the info-panel title and moon list,
+  the tooltip, and every reference label. Unit words follow the language too
+  (`11.86 years (4,333 days)` ↔ `11.86 년 (4,333 일)`), while both unit
+  notations (km/AU) and every number, conversion, and tilt/scale calculation
+  stay identical regardless of language (the display layer changes only).
+  Label show/hide keeps working independently of the language toggle.
 - Each panel (header, control, info) can be hidden or shown individually via
   the collapse button at its top-right corner.
 - `H` key: hides every UI panel on screen at once (for screenshots) or
@@ -70,8 +71,9 @@ frame.
   after a reload.
 - Control panel: play/pause/reset, speed (1s = 1 day / 10 days / 100 days /
   1 year, default 10 days), distance scale (Log default · Linear · Focus),
-  size scale (Enhanced default · Relative · Uniform), toggles for orbit
-  lines, labels, moons, and starfield, and camera reset.
+  size scale (Enhanced · Huge default · Gigantic · Relative · Uniform),
+  toggles for orbit lines, labels, moons, and starfield, and camera reset.
+  The active distance/size mode is highlighted on its button.
 
 ## Scale modes explained
 
@@ -83,15 +85,38 @@ frame.
   real distance differences are).
 - **Distance Focus**: layout is centered on the selected planetary system,
   with the outside gently compressed.
-- **Size Enhanced (default)**: square-root compression plus a minimum visible
-  size. The Jupiter · Saturn ≫ Earth relationship is preserved while Pluto
-  and the moons remain identifiable.
+- **Size Enhanced**: square-root compression plus a minimum visible size.
+  The Jupiter · Saturn ≫ Earth relationship is preserved while Pluto and the
+  moons remain identifiable.
+- **Size Huge (default)**: the Enhanced mapping magnified ×3 (Sun excluded).
+  Bodies are easier to see and to click at the whole-system zoom level —
+  the demo-friendly default.
+- **Size Gigantic**: the Enhanced mapping magnified ×10 (Sun excluded) — a
+  deliberately exaggerated showcase mode; neighboring bodies can visually
+  overlap.
 - **Size Relative**: emphasizes true proportions (magnifies size differences).
 - **Size Uniform**: an identical marker for every body — a mode for looking
   at the orbital structure only.
 - Render distance and render size are layout display values only, never a
   real physical scale (the bottom-right disclaimer and the info panel's
   render section state this every time).
+
+## Surface textures (real NASA imagery)
+
+Every planet, every major moon, Pluto and Charon render with a real
+photographic/mosaic global map of the actual body (equirectangular), loaded
+asynchronously from `public/textures/`:
+
+- Sun–Neptune (+ Saturn's rings): the Solar System Scope texture pack
+  (CC BY 4.0, based on NASA data); Earth is the NASA Blue Marble and the
+  Moon the LRO LROC WAC global mosaic.
+- All other moons, Pluto and Charon: NASA mission mosaics (Galileo, Voyager,
+  Cassini, Viking, New Horizons) via the NOAA Science On a Sphere catalog.
+
+Full per-file credits: `public/textures/ATTRIBUTION.md`. The map list lives
+in `src/data/bodyTextures.ts`; loading is fallback-safe (a body whose map is
+missing or unreachable keeps the original procedural look — Pluto's four
+small moons have no real map at all, so they always use it).
 
 ## Data
 
@@ -154,8 +179,10 @@ printed to the console in DEV mode.
   Selecting a planet expands its parent-system band 2.2× (spec §13 detail
   view); that expansion is also an isotropic scale, so the shape stays the
   same.
-- **Size (enhanced, default)**: `clamp(0.55 + 0.65·√(R/R⊕), 0.55, 4.0)`, moons
+- **Size (enhanced)**: `clamp(0.55 + 0.65·√(R/R⊕), 0.55, 4.0)`, moons
   `clamp(0.16 + 0.4·√(R/R⊕), 0.16, 0.75)`, the Sun a separate fixed 8
+- **Size (huge, default / gigantic)**: the enhanced mapping ×3 / ×10
+  (`SIZE_MODE_MULTIPLIER`); the Sun keeps its fixed radius in every mode
 - **Size (relative)**: true-proportion emphasis `clamp(0.25 + 0.35·(R/R⊕), 0.25, 6.5)`
 - **Size (uniform)**: an identical 0.6 marker for every body
 - Orbital phase comes from a numerical solution of Kepler's equation (Newton,
@@ -173,17 +200,19 @@ src/
   styles.css
   data/solarSystemData.ts      # real data (single source)
   data/validateSolarSystem.ts  # data-validation utility
-  core/ScaleManager.ts         # real data → render-unit conversion (3 distance & 3 size modes)
+  data/bodyTextures.ts         # body id → real NASA surface-map file (public/textures/)
+  core/ScaleManager.ts         # real data → render-unit conversion (3 distance & 5 size modes)
   core/SimulationClock.ts      # speed / play / pause / reset
   core/Kepler.ts               # Kepler-equation solver & orbit-plane position (pure functions)
   core/simMath.ts              # pure functions for rotation-angle & tilt mapping (no three/DOM deps)
   core/SolarSystem.ts          # scene graph: bodies, rings, starfield, moon local frames, transition interpolation
   core/CameraTween.ts          # camera focus: distance mapping + live-tracking ease-in-out tween (pure)
   core/CelestialBody.ts        # Kepler orbital kinematics, rotation, dimming (shared geometry)
+  core/textures.ts             # photo-texture URL resolution + async loading (fallback-safe)
   core/OrbitRenderer.ts        # orbit lines (built at init, updated only on scale change)
   ui/ControlPanel.ts           # control HUD
   ui/InfoPanel.ts              # tooltip + info panel (real vs render values shown separately)
-  ui/Labels.ts                 # CSS2D Korean/English name labels
+  ui/Labels.ts                 # CSS2D name labels (current language only)
   ui/i18n.ts                   # ko/en symmetric dictionary, language state, localStorage (t_00139ab5)
   ui/overlayState.ts           # overlay-toggle pure state, localStorage (t_30700e13)
   ui/OverlayManager.ts         # collapse buttons, dock, H hotkey, ARIA, selection events (t_30700e13)
@@ -200,9 +229,9 @@ src/
   becomes a visible `?key?` placeholder — never undefined/empty), and panels
   re-render via `onLangChange(fn)` subscriptions (no string caching). The
   current language is read/written through `getLang()`/`setLang()`/
-  `toggleLang()`, defaulting to Korean; the choice persists in
+  `toggleLang()`, defaulting to English; the choice persists in
   `localStorage["qwsolar.language.v1"]` (anything other than "ko"/"en" falls
-  back to Korean, and a storage failure behaves the same). Every fixed string
+  back to English, and a storage failure behaves the same). Every fixed string
   across all panels (control buttons, labels and speed options; info row
   names, separators and type names; dock, chip and collapse aria-labels;
   scale-mode names; speed and elapsed labels) resolves through these
@@ -273,11 +302,12 @@ src/
   19 checks). Missing data never leaks as `undefined`/`NaN` — it is unified
   as `MISSING_DISPLAY` ("—"), and km↔AU share one IAU exact constant
   (149,597,870.7 km) and one rounding rule so the two unit displays never
-  disagree with each other. Bilingual names follow a single rule in
-  `bilingualName` (t_8701c121): Korean mode "목성 · Jupiter", EN mode
-  "Jupiter · 목성" — both names are always paired; only the period and
-  retrograde unit WORDS are per-language (the `unit.*` / `rotation.retrograde`
-  dictionary keys) and numbers are identical in both languages. `InfoPanel`
+  disagree with each other. Body names follow a single rule in
+  `displayName`: the CURRENT language's name only (EN mode "Jupiter", Korean
+  mode "목성"; a missing name falls back to the other language before the
+  "—" placeholder); the period and retrograde unit WORDS are per-language
+  (the `unit.*` / `rotation.retrograde` dictionary keys) and numbers are
+  identical in both languages. `InfoPanel`
   separates the real-data section from the render-values section (`units`,
   marked "not real data") with headers, takes selection through
   `showBody(id)`, and updates only via `refresh()` — the frame loop (200 ms)

@@ -11,9 +11,10 @@ Three.js 기반의 브라우저용 인터랙티브 태양계 시각화입니다.
 
 - Sun~Pluto + 주요 위성 25개, 실데이터 기반 Kepler 궤도 운동(뉴턴+이분법 수치해, e<1 전 구간 안정)
 - 재생/정지/리셋과 배속(1초 = 1일/10일/100일/1년, 기본 10일)의 시뮬레이션 시간축
-- 거리 스케일 3종(Log 기본·Linear·Focus), 크기 스케일 3종(Enhanced 기본·Relative·Uniform), 모드 전환은 0.7초 ease-in-out 보간
+- 거리 스케일 3종(Log 기본·Linear·Focus), 크기 스케일 5종(Enhanced·Huge 기본(향상 ×3)·Gigantic(×10)·Relative·Uniform), 모드 전환은 0.7초 ease-in-out 보간
+- 전 행성·주요 위성·명왕성/카론에 실제 NASA 촬영 기반 표면 텍스처 적용(`public/textures/`, 출처는 `public/textures/ATTRIBUTION.md`)
 - 천체 클릭 선택 + 카메라 포커스 트윈, 호버 툴팁, 빈 공간 더블클릭으로 해제
-- 한/영 언어 토글(기본 한국어), 패널 개별 접기·`H` 단축키 전체 숨김/복원, 접힌 상태에서도 선택 시 인포 패널 자동 복구
+- 한/영 언어 토글(기본 영어), 천체 이름은 현재 선택 언어로만 표시, 패널 개별 접기·`H` 단축키 전체 숨김/복원, 접힌 상태에서도 선택 시 인포 패널 자동 복구
 - 이름표·인포 패널의 실데이터/렌더값 분리 표시, km↔AU 동일 환산 상수 사용
 - 상태(언어·패널 토글)는 브라우저 `localStorage`에만 저장, 서버 통신 없음
 
@@ -107,12 +108,14 @@ src/
   main.ts                      # 부트스트랩: 렌더러·카메라·루프·UI 배선
   data/solarSystemData.ts      # 실데이터 (단일 소스)
   data/validateSolarSystem.ts  # 데이터 검증 유틸
+  data/bodyTextures.ts         # 천체 id → 실사 표면 텍스처 파일 매핑
   core/                        # ScaleManager, SimulationClock, Kepler, simMath,
-                               # SolarSystem, CameraTween, CelestialBody,
+                               # SolarSystem, CameraTween, CelestialBody, textures,
                                # OrbitRenderer, bodyIdentity, pickCoords, pointerGesture
   ui/                          # ControlPanel, InfoPanel, Labels, i18n,
                                # overlayState, OverlayManager, format
   styles.css
+public/textures/               # 실제 NASA 촬영 기반 표면 맵 + ATTRIBUTION.md
 scripts/                       # 순수 Node 테스트(.test.mjs) + 헤드리스 Chrome 검증 스크립트
 docs/                          # 요구사항 원문(THREEJS_SOLAR_DEMO_PROMPT.md), 궤도 형태 진단
 index.html, vite.config.ts, tsconfig.json, package.json
@@ -129,3 +132,4 @@ index.html, vite.config.ts, tsconfig.json, package.json
 
 - **코드 라이선스는 아직 정의되지 않았습니다.** 저장소에 `LICENSE` 파일이 없고 `package.json`도 `private: true` 상태이므로, 코드 재배포·이용 조건은 공개 시점에 별도로 확정해야 합니다.
 - 천문 데이터는 위 표의 NASA/JPL 공개 페이지에서 수집한 값이며, 출처 표기는 위 "데이터와 출처" 절과 `README.md`에 유지됩니다.
+- 표면 텍스처는 Solar System Scope 텍스처 팩(CC BY 4.0)과 NASA 퍼블릭 도메인 모자이크(NOAA Science On a Sphere 경유)를 사용합니다 — 파일별 출처는 `public/textures/ATTRIBUTION.md` 참조.

@@ -1,6 +1,9 @@
 /**
  * SolarSystem — scene-graph assembly. Owns CelestialBody + OrbitRenderer
- * instances, the Sun light, star field, rings and procedural textures.
+ * instances, the Sun light, star field, rings and textures. Every body with
+ * a real photographic surface map (data/bodyTextures.ts — NASA imagery,
+ * bundled under textures/) loads it asynchronously; the procedural look
+ * below doubles as the instant placeholder and the no-network fallback.
  * Handles scale-mode CHANGES as smooth interpolations (spec §13: never
  * switch abruptly) and the detail-view reveal for the selected system.
  * No UI logic here (spec §17 separation).
@@ -17,11 +20,13 @@ import { CelestialBody, disposeSharedGeometries } from "./CelestialBody";
 import { OrbitRenderer } from "./OrbitRenderer";
 import { systemParentOf } from "./bodyIdentity";
 import type { ScaleManager } from "./ScaleManager";
+import { BODY_TEXTURE_FILES, RING_TEXTURE_FILES } from "../data/bodyTextures";
+import { loadColorTexture } from "./textures";
 
 /** Seconds over which scale-mode / system changes are interpolated. */
 const TRANSITION_SECONDS = 0.7;
 
-/** Procedural banded/variation CanvasTexture (spec §12: no external images). */
+/** Procedural banded CanvasTexture — placeholder until the photo map loads. */
 function makeBandedTexture(base: string, bandColor: string): THREE.CanvasTexture | null {
   const size = 256;
   const canvas = document.createElement("canvas");
@@ -122,6 +127,17 @@ export class SolarSystem {
         }
       }
 
+      // Real photographic surface map (NASA imagery, data/bodyTextures.ts):
+      // async — the procedural look above is the instant placeholder and
+      // stays if the file is missing or unreachable.
+      const photo = BODY_TEXTURE_FILES[data.id];
+      if (photo) {
+        loadColorTexture(photo, (tex) => {
+          body.applyTexture(tex);
+          this.disposables.push(tex);
+        });
+      }
+
       // Saturn (mandatory) / Uranus (thin, spec §12) rings.
       if (data.render?.hasRings) {
         const ring = this.makeRing(data);
@@ -202,6 +218,17 @@ export class SolarSystem {
       opacity: data.id === "uranus" ? 0.35 : 0.85,
       depthWrite: false,
     });
+    // Real ring strip (Cassini-derived, alpha = gaps) where one exists; the
+    // radial UV above (u = inner→outer) matches the strip's horizontal axis.
+    const ringPhoto = RING_TEXTURE_FILES[data.id];
+    if (ringPhoto) {
+      loadColorTexture(ringPhoto, (rtex) => {
+        mat.map = rtex;
+        mat.opacity = 1;
+        mat.needsUpdate = true;
+        this.disposables.push(rtex);
+      });
+    }
     const mesh = new THREE.Mesh(geo, mat);
     mesh.rotation.x = Math.PI / 2; // lies in the planet's equatorial (XZ) plane
     mesh.name = `ring:${data.id}`;
