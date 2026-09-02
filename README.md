@@ -41,9 +41,10 @@ frame.
 ## Panel visibility and hotkeys
 
 - Switch the display language with the flag buttons at the bottom-left of
-  the header — eight languages: English, 한국어, 日本語, 中文, Français,
-  Deutsch, Español and العربية (Arabic also flips the document to RTL).
-  English is the default; the choice is saved in
+  the header — sixteen languages: English, 한국어, 日本語, 中文, Français,
+  Deutsch, Español, العربية (flips the document to RTL), Português,
+  Italiano, Nederlands, Русский, Türkçe, Bahasa Indonesia, Tiếng Việt and
+  हिन्दी. English is the default; the choice is saved in
   `localStorage["qwsolar.language.v1"]` and restored after a reload, and it
   fails safe to English when no stored value exists, the stored value is
   invalid, or storage access fails.
@@ -208,7 +209,7 @@ src/
   data/solarSystemData.ts      # real data (single source)
   data/validateSolarSystem.ts  # data-validation utility
   data/bodyTextures.ts         # body id → real NASA surface-map file (public/textures/)
-  data/bodyNames.ts            # body id → localized display names (ja/zh/fr/de/es/ar)
+  data/bodyNames.ts            # body id → localized display names (14 non-dataset languages)
   core/ScaleManager.ts         # real data → render-unit conversion (3 distance & 5 size modes)
   core/SimulationClock.ts      # speed / play / pause / reset
   core/Kepler.ts               # Kepler-equation solver & orbit-plane position (pure functions)
