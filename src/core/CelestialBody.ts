@@ -148,6 +148,7 @@ export class CelestialBody {
       range.minKm,
       range.maxKm,
       this.parentRenderRadius,
+      this.data.parentId,
     );
   }
 
