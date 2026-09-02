@@ -10,6 +10,20 @@ Original requirements: `docs/THREEJS_SOLAR_DEMO_PROMPT.md` (all sections
 
 ## Running
 
+### Just want the app? Download a release
+
+Every [release](../../releases/latest) ships two ready-to-run downloads —
+no Node, no build step:
+
+- **`solar-system-<version>.html`** — a fully self-contained single file
+  (Three.js bundle and all NASA textures inlined). Download it and open it
+  in any browser, straight from disk.
+- **`solar-system-static-site-<version>.zip`** — the production build
+  output. Unzip it and serve the folder with any static file server
+  (e.g. `npx serve` or `python3 -m http.server`).
+
+### Run from source
+
 ```bash
 npm install
 npm run dev      # dev server
@@ -18,6 +32,22 @@ npm run preview  # inspect the build output
 ```
 
 Requires Node 20.19+ / 22.12+ (Vite 8 requirement).
+
+### Cutting a release (maintainers)
+
+Releases are built by `.github/workflows/release.yml` (tests + typecheck +
+build gate the publish) and can be cut two ways:
+
+- **Manually**: Actions → Release → *Run workflow*. It finds the latest
+  `vMAJOR.MINOR.PATCH` tag, bumps the part you pick (patch by default),
+  pushes the new tag, and publishes the release. The first run on a
+  repository with no `v*` tag creates `v1.0.0`.
+- **By tag**: push a tag matching `v*`
+  (`git tag v1.2.0 && git push origin v1.2.0`) to release exactly that tag.
+
+`node scripts/build-single-file.mjs` produces the single-file asset locally
+too (run `npm run build` first; with `sharp` installed the inlined textures
+are downscaled to ≤1024 px, without it they inline at full resolution).
 
 ## Controls (camera & selection)
 
