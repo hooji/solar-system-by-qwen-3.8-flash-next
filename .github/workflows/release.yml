@@ -1,0 +1,120 @@
+# Release — builds the static site and publishes it as a GitHub release so
+# people can download and run the app locally with no toolchain.
+#
+# Two ways to cut a release:
+#  - Push a tag matching v* (e.g. `git tag v1.2.0 && git push origin v1.2.0`):
+#    releases exactly that tag.
+#  - Run this workflow manually (Actions → Release → Run workflow): it finds
+#    the latest vMAJOR.MINOR.PATCH tag, bumps the chosen part (default:
+#    patch), pushes the new tag, and releases it. With no v* tag in the
+#    repository yet, the first manual run creates v1.0.0.
+#
+# Assets on every release:
+#  - solar-system-<version>.html — fully self-contained single file (all
+#    textures inlined); download and open directly in any browser.
+#  - solar-system-static-site-<version>.zip — the dist/ build output; unzip
+#    and serve the folder with any static file server.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: "Version part to bump for the auto-created tag"
+        type: choice
+        options: [patch, minor, major]
+        default: patch
+
+permissions:
+  contents: write # push the auto-created tag + create the release
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history incl. tags — needed to find the latest v*
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Test
+        run: npm test
+
+      - name: Build static site (typecheck + vite build)
+        run: npm run build
+
+      - name: Determine release version
+        id: version
+        env:
+          EVENT: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          BUMP: ${{ inputs.bump || 'patch' }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" = "push" ]; then
+            # Tag push: release exactly the pushed tag.
+            VERSION="$REF_NAME"
+            echo "created=false" >> "$GITHUB_OUTPUT"
+          else
+            # Manual run: bump the latest semver v* tag, or start at v1.0.0.
+            LATEST="$(git tag --list 'v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n1 || true)"
+            if [ -z "$LATEST" ]; then
+              VERSION="v1.0.0"
+            else
+              IFS=. read -r MAJ MIN PAT <<<"${LATEST#v}"
+              case "$BUMP" in
+                major) VERSION="v$((MAJ + 1)).0.0" ;;
+                minor) VERSION="v${MAJ}.$((MIN + 1)).0" ;;
+                *)     VERSION="v${MAJ}.${MIN}.$((PAT + 1))" ;;
+              esac
+            fi
+            echo "created=true" >> "$GITHUB_OUTPUT"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Releasing $VERSION"
+
+      - name: Create and push tag (manual runs only)
+        if: steps.version.outputs.created == 'true'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$VERSION" -m "Release $VERSION"
+          git push origin "refs/tags/$VERSION"
+
+      - name: Package release assets
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p release
+          # sharp shrinks the inlined textures to ~3 MB total; the builder
+          # falls back to full-resolution inlining if it is unavailable.
+          npm install --no-save sharp
+          node scripts/build-single-file.mjs "release/solar-system-$VERSION.html"
+          (cd dist && zip -rq "../release/solar-system-static-site-$VERSION.zip" .)
+          ls -la release/
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          gh release create "$VERSION" \
+            --title "$VERSION" \
+            --generate-notes \
+            --notes "**Run it locally, no install needed:** download \`solar-system-$VERSION.html\` and open it in any browser — it is fully self-contained (Three.js bundle and all NASA textures inlined). Alternatively, unzip \`solar-system-static-site-$VERSION.zip\` and serve the folder with any static file server (e.g. \`npx serve\` or \`python3 -m http.server\`)." \
+            "release/solar-system-$VERSION.html#Single-file app — download and open in a browser" \
+            "release/solar-system-static-site-$VERSION.zip#Static site — unzip and serve with any web server"
